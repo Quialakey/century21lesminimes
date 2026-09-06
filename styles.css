@@ -73,12 +73,12 @@ body.is-access-locked .app-shell {
   box-shadow: 0 26px 70px rgba(0, 0, 0, 0.34);
 }
 
-.access-kicker {
-  margin: 0 0 8px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
-  text-transform: uppercase;
+.access-logo {
+  display: block;
+  width: min(260px, 100%);
+  height: auto;
+  margin: 0 auto 18px;
+  border-radius: 6px;
 }
 
 .access-card h1 {
