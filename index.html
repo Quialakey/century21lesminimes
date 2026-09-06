@@ -19,12 +19,12 @@
     <link rel="shortcut icon" type="image/png" href="quialakey-icon.png?v=20260906-2" />
     <link rel="apple-touch-icon" sizes="838x838" href="quialakey-icon.png?v=20260906-2" />
     <link rel="manifest" href="manifest.webmanifest?v=20260906-2" />
-    <link rel="stylesheet" href="styles.css?v=20260906-37" />
+    <link rel="stylesheet" href="styles.css?v=20260906-38" />
   </head>
   <body class="is-access-locked">
     <div id="accessLock" class="access-lock" role="dialog" aria-modal="true" aria-labelledby="accessAgencyTitle">
       <section class="access-card">
-        <img class="access-logo" src="quialakey-logo-paysage.png?v=20260906-37" alt="Quialakey" />
+        <img class="access-logo" src="quialakey-logo-paysage.png?v=20260906-38" alt="Quialakey" />
         <h1 id="accessAgencyTitle">Agence</h1>
         <form id="accessForm" class="access-form">
           <label for="accessCodeInput">Code d'acc&egrave;s</label>
@@ -458,7 +458,11 @@
           </section>
 
           <section class="settings-section settings-access-section">
-            <h3>Accès au tableau <em id="settingsAccessCodeText" class="settings-access-code" hidden>(Mot de passe : 2121)</em></h3>
+            <h3>
+              Accès au tableau
+              <em id="settingsAccessCodeText" class="settings-access-code" hidden>(Mot de passe : 2121)</em>
+              <button id="editSettingsAccessCodeBtn" class="settings-access-edit-button" type="button" hidden>Modifier</button>
+            </h3>
             <label class="settings-switch-control">
               <span>Privatiser le tableau</span>
               <input id="settingsAccessLockInput" type="checkbox" role="switch" />
@@ -523,7 +527,7 @@
 
     <script>
       (() => {
-        const fallbackVersion = "20260906-37";
+        const fallbackVersion = "20260906-38";
         const loadApp = (version) => {
           const script = document.createElement("script");
           script.src = `app.js?v=${encodeURIComponent(version || fallbackVersion)}&t=${Date.now()}`;

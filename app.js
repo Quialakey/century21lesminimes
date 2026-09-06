@@ -24,7 +24,7 @@ const supabaseUrl = "https://ivwvrtnbzvsxrsmqkrff.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2d3ZydG5ienZzeHJzbXFrcmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMjM3MjUsImV4cCI6MjA5ODc5OTcyNX0.-vxDlYB1L6t-NZnjEdrJXbpbQn1n-s3XCA--CEqcK-w";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260906-37";
+const appBuildVersion = "20260906-38";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -571,6 +571,7 @@ const addSettingsReplacementBtn = document.querySelector("#addSettingsReplacemen
 const settingsCelebrationInput = document.querySelector("#settingsCelebrationInput");
 const settingsAccessLockInput = document.querySelector("#settingsAccessLockInput");
 const settingsAccessCodeText = document.querySelector("#settingsAccessCodeText");
+const editSettingsAccessCodeBtn = document.querySelector("#editSettingsAccessCodeBtn");
 const globalHistoryPanel = document.querySelector("#globalHistoryPanel");
 const globalHistoryEyebrow = document.querySelector("#globalHistoryEyebrow");
 const globalHistoryTitle = document.querySelector("#globalHistoryTitle");
@@ -5056,9 +5057,12 @@ function updateSettingsDraftFromDom() {
   }
   if (settingsAccessLockInput) {
     const wasEnabled = tableSettings?.accessLockEnabled !== false;
+    const previousAccessCode = String(tableSettings?.accessCode || defaultAccessCode).trim() || defaultAccessCode;
+    const nextAccessCode = String(settingsDraft.accessCode || defaultAccessCode).trim() || defaultAccessCode;
+    const accessCodeChanged = nextAccessCode !== previousAccessCode;
     settingsDraft.accessLockEnabled = settingsAccessLockInput.checked;
     settingsDraft.accessLockVersion =
-      !wasEnabled && settingsDraft.accessLockEnabled
+      (!wasEnabled && settingsDraft.accessLockEnabled) || accessCodeChanged
         ? Date.now()
         : tableSettings?.accessLockVersion || settingsDraft.accessLockVersion || 1;
   }
@@ -5189,6 +5193,9 @@ function renderSettingsPanel() {
   if (settingsAccessCodeText) {
     settingsAccessCodeText.hidden = settingsDraft.accessLockEnabled === false;
     settingsAccessCodeText.textContent = `(Mot de passe : ${settingsDraft.accessCode || defaultAccessCode})`;
+  }
+  if (editSettingsAccessCodeBtn) {
+    editSettingsAccessCodeBtn.hidden = settingsDraft.accessLockEnabled === false;
   }
   if (toggleSettingsOrganizationBtn) {
     toggleSettingsOrganizationBtn.setAttribute("aria-expanded", String(areSettingsOrganizationVisible));
@@ -8092,6 +8099,22 @@ toggleSettingsReplacementsBtn?.addEventListener("click", () => {
 settingsAccessLockInput?.addEventListener("change", () => {
   if (!settingsDraft) settingsDraft = cloneTableSettings();
   settingsDraft.accessLockEnabled = settingsAccessLockInput.checked;
+  renderSettingsPanel();
+});
+
+editSettingsAccessCodeBtn?.addEventListener("click", () => {
+  if (!settingsDraft) settingsDraft = cloneTableSettings();
+  updateSettingsDraftFromDom();
+  const currentCode = settingsDraft.accessCode || defaultAccessCode;
+  const nextCode = window.prompt("Nouveau mot de passe du tableau :", currentCode);
+  if (nextCode === null) return;
+  const normalizedCode = String(nextCode).trim();
+  if (!normalizedCode) {
+    window.alert("Le mot de passe ne peut pas être vide.");
+    return;
+  }
+  settingsDraft.accessCode = normalizedCode;
+  settingsDraft.accessLockVersion = Date.now();
   renderSettingsPanel();
 });
 
