@@ -65,8 +65,8 @@ body.is-access-locked .app-shell {
 }
 
 .access-card {
-  width: min(480px, 100%);
-  padding: 26px;
+  width: min(620px, 100%);
+  padding: 34px;
   border: 2px solid var(--c21-gold);
   border-radius: 8px;
   background: var(--panel);
@@ -84,14 +84,14 @@ body.is-access-locked .app-shell {
   width: 100%;
   max-width: 100%;
   height: auto;
-  margin: 0 auto 20px;
+  margin: 0 auto 26px;
   border-radius: 6px;
 }
 
 .access-card h1 {
-  margin: 0 0 22px;
+  margin: 0 0 28px;
   color: var(--ink);
-  font-size: 25px;
+  font-size: 29px;
   font-weight: 650;
   line-height: 1.15;
   letter-spacing: 0;
@@ -100,7 +100,7 @@ body.is-access-locked .app-shell {
 
 .access-form {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .access-form label {
@@ -111,8 +111,8 @@ body.is-access-locked .app-shell {
 
 .access-form input {
   width: 100%;
-  min-height: 46px;
-  padding: 10px 12px;
+  min-height: 52px;
+  padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--ink);
@@ -121,7 +121,7 @@ body.is-access-locked .app-shell {
 }
 
 .access-form button {
-  min-height: 44px;
+  min-height: 50px;
   border-radius: 8px;
   color: #ffffff;
   background: var(--blue);
@@ -132,7 +132,7 @@ body.is-access-locked .app-shell {
     Roboto,
     Arial,
     sans-serif;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
