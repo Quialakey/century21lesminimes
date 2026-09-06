@@ -239,7 +239,7 @@ button {
 
 .topbar {
   display: grid;
-  grid-template-columns: 330px minmax(0, 1fr) 260px;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   column-gap: 24px;
 }
