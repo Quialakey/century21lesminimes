@@ -253,12 +253,15 @@ button {
 }
 
 .registry-switcher {
-  display: grid;
+  position: relative;
+  display: block;
   width: 320px;
-  gap: 6px;
 }
 
 .agency-name-label {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  left: 0;
   width: max-content;
   margin: 0;
   padding-bottom: 2px;
@@ -267,7 +270,6 @@ button {
   font-size: 15px;
   font-weight: 600;
   line-height: 1.2;
-  transform: translateY(-14px);
 }
 
 .eyebrow {
