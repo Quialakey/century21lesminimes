@@ -3007,6 +3007,7 @@ body.is-moving-key .photo-hover {
   }
 
   .agency-name-label {
+    bottom: calc(100% + 12px);
     right: auto;
     left: 50%;
     transform: translateX(-50%);
