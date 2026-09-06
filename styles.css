@@ -259,14 +259,15 @@ button {
 }
 
 .agency-name-label {
+  width: max-content;
   margin: 0;
+  padding-bottom: 2px;
+  border-bottom: 1px solid currentColor;
   color: var(--ink);
   font-size: 15px;
   font-weight: 600;
   line-height: 1.2;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  transform: translateY(-8px);
+  transform: translateY(-14px);
 }
 
 .eyebrow {
