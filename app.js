@@ -2173,7 +2173,7 @@ function updateRegistryHeader() {
   const targetRegistry = activeRegistry === "location" ? "transaction" : "location";
   const targetConfig = registryConfig[targetRegistry];
   appTitleText.textContent = config.title;
-  document.title = config.title.replace(/\n/g, " - ");
+  document.title = "Quialakey";
   registryToggleBtn.textContent = config.toggleLabel;
   rentedBtn.textContent = config.archiveActionLabel;
   transferKeyBtn.textContent = `Transférer vers ${targetConfig.title}`;
