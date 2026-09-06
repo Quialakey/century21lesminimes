@@ -24,7 +24,7 @@ const supabaseUrl = "https://ivwvrtnbzvsxrsmqkrff.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2d3ZydG5ienZzeHJzbXFrcmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMjM3MjUsImV4cCI6MjA5ODc5OTcyNX0.-vxDlYB1L6t-NZnjEdrJXbpbQn1n-s3XCA--CEqcK-w";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260906-35";
+const appBuildVersion = "20260906-36";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -564,9 +564,11 @@ const settingsRowCountInput = document.querySelector("#settingsRowCountInput");
 const settingsSlotsInput = document.querySelector("#settingsSlotsInput");
 const settingsCategoriesList = document.querySelector("#settingsCategoriesList");
 const settingsReplacementsList = document.querySelector("#settingsReplacementsList");
+const toggleSettingsReplacementsBtn = document.querySelector("#toggleSettingsReplacementsBtn");
 const addSettingsReplacementBtn = document.querySelector("#addSettingsReplacementBtn");
 const settingsCelebrationInput = document.querySelector("#settingsCelebrationInput");
 const settingsAccessLockInput = document.querySelector("#settingsAccessLockInput");
+const settingsAccessCodeText = document.querySelector("#settingsAccessCodeText");
 const globalHistoryPanel = document.querySelector("#globalHistoryPanel");
 const globalHistoryEyebrow = document.querySelector("#globalHistoryEyebrow");
 const globalHistoryTitle = document.querySelector("#globalHistoryTitle");
@@ -638,6 +640,7 @@ let shouldReloadCloudAfterCurrentCheck = false;
 let lastSlotCloudSeenAt = "";
 let lastAutomaticCloudRefreshAt = 0;
 let automaticCloudRefreshTimer = null;
+let areSettingsReplacementsVisible = true;
 
 function getAccessAgencyTitle() {
   const agencyName = String(tableSettings?.agencyName || "Agence").trim() || "Agence";
@@ -5180,6 +5183,13 @@ function renderSettingsPanel() {
   if (settingsSlotsInput) settingsSlotsInput.value = String(settingsDraft.slotsPerCategory || defaultSlotsPerCategory);
   if (settingsCelebrationInput) settingsCelebrationInput.checked = settingsDraft.saleCelebrationEnabled !== false;
   if (settingsAccessLockInput) settingsAccessLockInput.checked = settingsDraft.accessLockEnabled !== false;
+  if (settingsAccessCodeText) {
+    settingsAccessCodeText.hidden = settingsDraft.accessLockEnabled === false;
+    settingsAccessCodeText.textContent = `Mot de passe : ${settingsDraft.accessCode || defaultAccessCode}`;
+  }
+  if (toggleSettingsReplacementsBtn) {
+    toggleSettingsReplacementsBtn.setAttribute("aria-expanded", String(areSettingsReplacementsVisible));
+  }
 
   if (settingsCategoriesList) {
     settingsCategoriesList.innerHTML = "";
@@ -5189,6 +5199,7 @@ function renderSettingsPanel() {
   }
 
   if (settingsReplacementsList) {
+    settingsReplacementsList.hidden = !areSettingsReplacementsVisible;
     settingsReplacementsList.innerHTML = "";
     const replacements = settingsDraft.addressReplacements?.length
       ? sortAddressReplacements(settingsDraft.addressReplacements)
@@ -8055,6 +8066,18 @@ accessForm?.addEventListener("submit", (event) => {
 
 accessCodeInput?.addEventListener("input", () => {
   if (accessError) accessError.hidden = true;
+});
+
+toggleSettingsReplacementsBtn?.addEventListener("click", () => {
+  updateSettingsDraftFromDom();
+  areSettingsReplacementsVisible = !areSettingsReplacementsVisible;
+  renderSettingsPanel();
+});
+
+settingsAccessLockInput?.addEventListener("change", () => {
+  if (!settingsDraft) settingsDraft = cloneTableSettings();
+  settingsDraft.accessLockEnabled = settingsAccessLockInput.checked;
+  renderSettingsPanel();
 });
 
 forgotPasswordBtn?.addEventListener("click", () => {

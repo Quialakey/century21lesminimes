@@ -19,12 +19,12 @@
     <link rel="shortcut icon" type="image/png" href="quialakey-icon.png?v=20260906-2" />
     <link rel="apple-touch-icon" sizes="838x838" href="quialakey-icon.png?v=20260906-2" />
     <link rel="manifest" href="manifest.webmanifest?v=20260906-2" />
-    <link rel="stylesheet" href="styles.css?v=20260906-35" />
+    <link rel="stylesheet" href="styles.css?v=20260906-36" />
   </head>
   <body class="is-access-locked">
     <div id="accessLock" class="access-lock" role="dialog" aria-modal="true" aria-labelledby="accessAgencyTitle">
       <section class="access-card">
-        <img class="access-logo" src="quialakey-logo-paysage.png?v=20260906-35" alt="Quialakey" />
+        <img class="access-logo" src="quialakey-logo-paysage.png?v=20260906-36" alt="Quialakey" />
         <h1 id="accessAgencyTitle">Agence</h1>
         <form id="accessForm" class="access-form">
           <label for="accessCodeInput">Code d'acc&egrave;s</label>
@@ -413,9 +413,20 @@
             <ol id="settingsCategoriesList" class="settings-list settings-categories-list"></ol>
           </section>
 
-          <section class="settings-section">
+          <section class="settings-section settings-replacements-section">
             <div class="settings-section-heading">
-              <h3>Mots remplacés</h3>
+              <div class="settings-heading-title">
+                <h3>Mots remplacés</h3>
+                <button
+                  id="toggleSettingsReplacementsBtn"
+                  class="settings-collapse-button"
+                  type="button"
+                  aria-expanded="true"
+                  aria-controls="settingsReplacementsList"
+                >
+                  ▾
+                </button>
+              </div>
               <button id="addSettingsReplacementBtn" class="settings-secondary-button" type="button">Ajouter</button>
             </div>
             <ol id="settingsReplacementsList" class="settings-list settings-replacements-list"></ol>
@@ -437,6 +448,7 @@
               <input id="settingsAccessLockInput" type="checkbox" role="switch" />
               <span class="settings-switch-track" aria-hidden="true"></span>
             </label>
+            <p id="settingsAccessCodeText" class="settings-access-code" hidden>Mot de passe : 2121</p>
           </section>
 
           <button class="settings-save-button" type="submit">Enregistrer les réglages</button>
@@ -496,7 +508,7 @@
 
     <script>
       (() => {
-        const fallbackVersion = "20260906-35";
+        const fallbackVersion = "20260906-36";
         const loadApp = (version) => {
           const script = document.createElement("script");
           script.src = `app.js?v=${encodeURIComponent(version || fallbackVersion)}&t=${Date.now()}`;
