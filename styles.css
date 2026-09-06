@@ -2889,7 +2889,7 @@ body.is-moving-key .photo-hover {
 }
 
 .is-tablet-device .workspace {
-  padding: calc(16px + env(safe-area-inset-top, 0px)) 6px 6px;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 10px 10px;
 }
 
 @media (max-width: 1040px) {
