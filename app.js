@@ -24,7 +24,7 @@ const supabaseUrl = "https://ivwvrtnbzvsxrsmqkrff.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2d3ZydG5ienZzeHJzbXFrcmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMjM3MjUsImV4cCI6MjA5ODc5OTcyNX0.-vxDlYB1L6t-NZnjEdrJXbpbQn1n-s3XCA--CEqcK-w";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260906-11";
+const appBuildVersion = "20260906-12";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -639,6 +639,12 @@ function isMobileLikeDevice() {
       window.matchMedia?.("(pointer: coarse)")?.matches ||
       "ontouchstart" in window,
   );
+}
+
+function isPhoneOrTabletDevice() {
+  const userAgent = navigator.userAgent || "";
+  const platform = navigator.platform || "";
+  return /Android|iPhone|iPad|Tablet|Mobi/i.test(userAgent) || (platform === "MacIntel" && navigator.maxTouchPoints > 1);
 }
 
 function getAutomaticCloudPollInterval() {
@@ -5529,9 +5535,9 @@ function renderArchiveList(list, reason, emptyText, options = {}) {
     actions.append(restoreButton);
     item.append(details, actions);
     item.classList.add("is-clickable");
-    if (options.showCompromiseDetails) {
+    if (options.showCompromiseDetails && !isPhoneOrTabletDevice()) {
       item.dataset.quickTip = "Appuyer sur Ctrl + clic pour modifier la date du compromis";
-    } else {
+    } else if (!options.showCompromiseDetails) {
       item.title = "Cliquer pour consulter la fiche et son historique";
     }
     item.addEventListener("click", (event) => {
