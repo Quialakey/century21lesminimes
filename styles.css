@@ -3007,7 +3007,7 @@ body.is-moving-key .photo-hover {
   }
 
   .workspace {
-    padding-top: calc(18px + env(safe-area-inset-top, 0px));
+    padding-top: calc(34px + env(safe-area-inset-top, 0px));
   }
 
   .agency-name-label {
