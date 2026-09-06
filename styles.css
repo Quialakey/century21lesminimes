@@ -3006,6 +3006,10 @@ body.is-moving-key .photo-hover {
     padding: 18px;
   }
 
+  .workspace {
+    padding-top: calc(18px + env(safe-area-inset-top, 0px));
+  }
+
   .agency-name-label {
     bottom: calc(100% + 12px);
     right: auto;
