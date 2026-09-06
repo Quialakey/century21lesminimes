@@ -224,7 +224,7 @@ button {
 }
 
 .workspace {
-  padding: 28px;
+  padding: 28px 18px 18px;
 }
 
 .topbar,
@@ -1175,7 +1175,7 @@ textarea {
 
 .key-grid {
   display: grid;
-  gap: 18px;
+  gap: 14px;
 }
 
 .category-row {
