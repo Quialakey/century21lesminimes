@@ -24,7 +24,7 @@ const supabaseUrl = "https://ivwvrtnbzvsxrsmqkrff.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2d3ZydG5ienZzeHJzbXFrcmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMjM3MjUsImV4cCI6MjA5ODc5OTcyNX0.-vxDlYB1L6t-NZnjEdrJXbpbQn1n-s3XCA--CEqcK-w";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260906-33";
+const appBuildVersion = "20260906-34";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -143,6 +143,8 @@ function getDefaultTableSettings() {
     addressReplacements: defaultAddressReplacements.map((item) => ({ ...item })),
     saleCelebrationEnabled: true,
     accessCode: defaultAccessCode,
+    accessLockEnabled: true,
+    accessLockVersion: 1,
   };
 }
 
@@ -209,6 +211,10 @@ function normalizeTableSettings(value) {
   const saleCelebrationEnabled = source.saleCelebrationEnabled !== false;
   const agencyName = String(source.agencyName || fallback.agencyName).trim() || fallback.agencyName;
   const accessCode = String(source.accessCode || fallback.accessCode || defaultAccessCode).trim() || defaultAccessCode;
+  const accessLockEnabled = source.accessLockEnabled !== false;
+  const accessLockVersion = Number.isFinite(Number(source.accessLockVersion))
+    ? Number(source.accessLockVersion)
+    : fallback.accessLockVersion;
 
   return {
     agencyName,
@@ -217,6 +223,8 @@ function normalizeTableSettings(value) {
     addressReplacements,
     saleCelebrationEnabled,
     accessCode,
+    accessLockEnabled,
+    accessLockVersion,
   };
 }
 
@@ -558,6 +566,7 @@ const settingsCategoriesList = document.querySelector("#settingsCategoriesList")
 const settingsReplacementsList = document.querySelector("#settingsReplacementsList");
 const addSettingsReplacementBtn = document.querySelector("#addSettingsReplacementBtn");
 const settingsCelebrationInput = document.querySelector("#settingsCelebrationInput");
+const settingsAccessLockInput = document.querySelector("#settingsAccessLockInput");
 const globalHistoryPanel = document.querySelector("#globalHistoryPanel");
 const globalHistoryEyebrow = document.querySelector("#globalHistoryEyebrow");
 const globalHistoryTitle = document.querySelector("#globalHistoryTitle");
@@ -640,7 +649,8 @@ function updateAccessLockTitle() {
 }
 
 function isAccessUnlocked() {
-  return getRuntimeStorageValue(accessUnlockedStorageKey) === "true";
+  if (tableSettings?.accessLockEnabled === false) return true;
+  return getRuntimeStorageValue(accessUnlockedStorageKey) === String(tableSettings?.accessLockVersion || 1);
 }
 
 function showAccessLock() {
@@ -651,14 +661,18 @@ function showAccessLock() {
 }
 
 function unlockAccess() {
-  setRuntimeStorageValue(accessUnlockedStorageKey, "true");
+  setRuntimeStorageValue(accessUnlockedStorageKey, String(tableSettings?.accessLockVersion || 1));
+  hideAccessLock();
+}
+
+function hideAccessLock() {
   document.body.classList.remove("is-access-locked");
   if (accessLock) accessLock.hidden = true;
 }
 
 function updateAccessLockState() {
   if (isAccessUnlocked()) {
-    unlockAccess();
+    hideAccessLock();
     return;
   }
   showAccessLock();
@@ -5034,6 +5048,14 @@ function updateSettingsDraftFromDom() {
   if (settingsCelebrationInput) {
     settingsDraft.saleCelebrationEnabled = settingsCelebrationInput.checked;
   }
+  if (settingsAccessLockInput) {
+    const wasEnabled = tableSettings?.accessLockEnabled !== false;
+    settingsDraft.accessLockEnabled = settingsAccessLockInput.checked;
+    settingsDraft.accessLockVersion =
+      !wasEnabled && settingsDraft.accessLockEnabled
+        ? Date.now()
+        : tableSettings?.accessLockVersion || settingsDraft.accessLockVersion || 1;
+  }
 
   const replacementItems = settingsReplacementsList ? [...settingsReplacementsList.querySelectorAll("[data-settings-replacement-index]")] : [];
   settingsDraft.addressReplacements = replacementItems.map((item) => {
@@ -5157,6 +5179,7 @@ function renderSettingsPanel() {
   if (settingsRowCountInput) settingsRowCountInput.value = String(settingsDraft.categories.length);
   if (settingsSlotsInput) settingsSlotsInput.value = String(settingsDraft.slotsPerCategory || defaultSlotsPerCategory);
   if (settingsCelebrationInput) settingsCelebrationInput.checked = settingsDraft.saleCelebrationEnabled !== false;
+  if (settingsAccessLockInput) settingsAccessLockInput.checked = settingsDraft.accessLockEnabled !== false;
 
   if (settingsCategoriesList) {
     settingsCategoriesList.innerHTML = "";
@@ -5202,6 +5225,7 @@ function saveTableSettings(nextSettings) {
   savePendingCloudKeys();
   scheduleStorageKeySync(tableSettingsStorageKey, 0);
   tableSettings = normalized;
+  updateAccessLockState();
   keys = loadKeys();
   archives = loadArchives();
   return true;
