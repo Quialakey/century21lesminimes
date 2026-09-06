@@ -95,6 +95,7 @@ body.is-access-locked .app-shell {
   font-weight: 650;
   line-height: 1.15;
   letter-spacing: 0;
+  text-align: center;
 }
 
 .access-form {
@@ -124,7 +125,15 @@ body.is-access-locked .app-shell {
   border-radius: 8px;
   color: #ffffff;
   background: var(--blue);
+  font-family:
+    "Segoe UI Variable Display",
+    "Segoe UI",
+    Roboto,
+    Arial,
+    sans-serif;
+  font-size: 15px;
   font-weight: 750;
+  letter-spacing: 0;
 }
 
 .access-error {
