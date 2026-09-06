@@ -24,10 +24,12 @@ const supabaseUrl = "https://ivwvrtnbzvsxrsmqkrff.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2d3ZydG5ienZzeHJzbXFrcmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMjM3MjUsImV4cCI6MjA5ODc5OTcyNX0.-vxDlYB1L6t-NZnjEdrJXbpbQn1n-s3XCA--CEqcK-w";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260906-25";
+const appBuildVersion = "20260906-26";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
+const accessUnlockedStorageKey = "quialakey-access-unlocked-v1";
+const defaultAccessCode = "2121";
 const registryStorageKey = "cles-location-active-registry-v1";
 const sharedContactsStorageKey = "cles-location-intervenants-v1";
 const appActivityLogStorageKey = "cles-global-activity-v1";
@@ -140,6 +142,7 @@ function getDefaultTableSettings() {
     slotsPerCategory: defaultSlotsPerCategory,
     addressReplacements: defaultAddressReplacements.map((item) => ({ ...item })),
     saleCelebrationEnabled: true,
+    accessCode: defaultAccessCode,
   };
 }
 
@@ -205,6 +208,7 @@ function normalizeTableSettings(value) {
   const addressReplacements = sortAddressReplacements(normalizedAddressReplacements);
   const saleCelebrationEnabled = source.saleCelebrationEnabled !== false;
   const agencyName = String(source.agencyName || fallback.agencyName).trim() || fallback.agencyName;
+  const accessCode = String(source.accessCode || fallback.accessCode || defaultAccessCode).trim() || defaultAccessCode;
 
   return {
     agencyName,
@@ -212,6 +216,7 @@ function normalizeTableSettings(value) {
     slotsPerCategory,
     addressReplacements,
     saleCelebrationEnabled,
+    accessCode,
   };
 }
 
@@ -454,6 +459,11 @@ const keySetOptions = [
   { id: "quad", label: "Jeu 4" },
 ];
 
+const accessLock = document.querySelector("#accessLock");
+const accessForm = document.querySelector("#accessForm");
+const accessAgencyTitle = document.querySelector("#accessAgencyTitle");
+const accessCodeInput = document.querySelector("#accessCodeInput");
+const accessError = document.querySelector("#accessError");
 const appTitle = document.querySelector("#appTitle");
 const appTitleText = document.querySelector(".app-title-text");
 const agencyNameLabel = document.querySelector("#agencyNameLabel");
@@ -617,6 +627,40 @@ let shouldReloadCloudAfterCurrentCheck = false;
 let lastSlotCloudSeenAt = "";
 let lastAutomaticCloudRefreshAt = 0;
 let automaticCloudRefreshTimer = null;
+
+function getAccessAgencyTitle() {
+  const agencyName = String(tableSettings?.agencyName || "Agence").trim() || "Agence";
+  return agencyName.toLocaleLowerCase("fr-FR") === "agence" ? "Agence" : `Agence ${agencyName}`;
+}
+
+function updateAccessLockTitle() {
+  if (accessAgencyTitle) accessAgencyTitle.textContent = getAccessAgencyTitle();
+}
+
+function isAccessUnlocked() {
+  return getRuntimeStorageValue(accessUnlockedStorageKey) === "true";
+}
+
+function showAccessLock() {
+  updateAccessLockTitle();
+  if (accessLock) accessLock.hidden = false;
+  document.body.classList.add("is-access-locked");
+  window.setTimeout(() => accessCodeInput?.focus(), 0);
+}
+
+function unlockAccess() {
+  setRuntimeStorageValue(accessUnlockedStorageKey, "true");
+  document.body.classList.remove("is-access-locked");
+  if (accessLock) accessLock.hidden = true;
+}
+
+function updateAccessLockState() {
+  if (isAccessUnlocked()) {
+    unlockAccess();
+    return;
+  }
+  showAccessLock();
+}
 
 function markLocalEdit() {
   if (isApplyingCloudState) return;
@@ -2193,6 +2237,7 @@ function updateRegistryHeader() {
   const targetConfig = registryConfig[targetRegistry];
   appTitleText.textContent = config.title;
   if (agencyNameLabel) agencyNameLabel.textContent = tableSettings?.agencyName || "Agence";
+  updateAccessLockTitle();
   document.title = "Quialakey";
   registryToggleBtn.textContent = config.toggleLabel;
   rentedBtn.textContent = config.archiveActionLabel;
@@ -7919,8 +7964,10 @@ async function initializeApp() {
   if (await ensureFreshPublishedAppVersion()) return;
   resetLegacySyncMetadataIfNeeded();
   removeAutomaticBackupsFromLocalStorage();
+  updateAccessLockState();
   ensureDeviceName();
   await loadStorageFromCloud({ force: isStandaloneHomeScreenApp() });
+  updateAccessLockState();
   migrateArchivedSlots();
   subscribeToCloudChanges();
   await migrateStoredPropertyAddresses();
@@ -7966,5 +8013,22 @@ window.addEventListener("pageshow", () => {
   );
 });
 window.addEventListener("resize", () => requestAnimationFrame(syncSignatureHeightToActions));
+
+accessForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const typedCode = String(accessCodeInput?.value || "").trim();
+  const expectedCode = String(tableSettings?.accessCode || defaultAccessCode).trim();
+  if (typedCode === expectedCode) {
+    if (accessError) accessError.hidden = true;
+    unlockAccess();
+    return;
+  }
+  if (accessError) accessError.hidden = false;
+  accessCodeInput?.select();
+});
+
+accessCodeInput?.addEventListener("input", () => {
+  if (accessError) accessError.hidden = true;
+});
 
 initializeApp();

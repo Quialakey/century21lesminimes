@@ -19,9 +19,28 @@
     <link rel="shortcut icon" type="image/png" href="quialakey-icon.png?v=20260906-2" />
     <link rel="apple-touch-icon" sizes="838x838" href="quialakey-icon.png?v=20260906-2" />
     <link rel="manifest" href="manifest.webmanifest?v=20260906-2" />
-    <link rel="stylesheet" href="styles.css?v=20260906-25" />
+    <link rel="stylesheet" href="styles.css?v=20260906-26" />
   </head>
-  <body>
+  <body class="is-access-locked">
+    <div id="accessLock" class="access-lock" role="dialog" aria-modal="true" aria-labelledby="accessAgencyTitle">
+      <section class="access-card">
+        <p class="access-kicker">Quialakey</p>
+        <h1 id="accessAgencyTitle">Agence</h1>
+        <form id="accessForm" class="access-form">
+          <label for="accessCodeInput">Code d'acc&egrave;s</label>
+          <input
+            id="accessCodeInput"
+            type="password"
+            inputmode="numeric"
+            autocomplete="current-password"
+            placeholder="Code"
+            aria-describedby="accessError"
+          />
+          <button type="submit">Entrer</button>
+          <p id="accessError" class="access-error" hidden>Code incorrect.</p>
+        </form>
+      </section>
+    </div>
     <div id="saleCelebration" class="sale-celebration" aria-live="polite" hidden>
       <div class="celebration-sky" aria-hidden="true">
       </div>
@@ -466,7 +485,7 @@
 
     <script>
       (() => {
-        const fallbackVersion = "20260906-25";
+        const fallbackVersion = "20260906-26";
         const loadApp = (version) => {
           const script = document.createElement("script");
           script.src = `app.js?v=${encodeURIComponent(version || fallbackVersion)}&t=${Date.now()}`;

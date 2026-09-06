@@ -43,6 +43,88 @@ body {
   background: var(--bg);
 }
 
+body.is-access-locked {
+  overflow: hidden;
+}
+
+body.is-access-locked .app-shell {
+  display: none;
+}
+
+.access-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: calc(26px + env(safe-area-inset-top, 0px)) 18px calc(26px + env(safe-area-inset-bottom, 0px));
+  background:
+    linear-gradient(135deg, rgba(23, 57, 45, 0.94), rgba(30, 37, 40, 0.88)),
+    var(--bg);
+}
+
+.access-card {
+  width: min(420px, 100%);
+  padding: 28px;
+  border: 2px solid var(--c21-gold);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.34);
+}
+
+.access-kicker {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.access-card h1 {
+  margin: 0 0 22px;
+  color: var(--ink);
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.access-form {
+  display: grid;
+  gap: 10px;
+}
+
+.access-form label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.access-form input {
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: #f3f5f3;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.access-form button {
+  min-height: 44px;
+  border-radius: 8px;
+  color: #ffffff;
+  background: var(--blue);
+  font-weight: 850;
+}
+
+.access-error {
+  margin: 2px 0 0;
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .sale-celebration {
   position: fixed;
   inset: 0;
