@@ -24,7 +24,7 @@ const supabaseUrl = "https://ivwvrtnbzvsxrsmqkrff.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2d3ZydG5ienZzeHJzbXFrcmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMjM3MjUsImV4cCI6MjA5ODc5OTcyNX0.-vxDlYB1L6t-NZnjEdrJXbpbQn1n-s3XCA--CEqcK-w";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260906-31";
+const appBuildVersion = "20260906-32";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -464,6 +464,8 @@ const accessForm = document.querySelector("#accessForm");
 const accessAgencyTitle = document.querySelector("#accessAgencyTitle");
 const accessCodeInput = document.querySelector("#accessCodeInput");
 const accessError = document.querySelector("#accessError");
+const forgotPasswordBtn = document.querySelector("#forgotPasswordBtn");
+const forgotPasswordMessage = document.querySelector("#forgotPasswordMessage");
 const appTitle = document.querySelector("#appTitle");
 const appTitleText = document.querySelector(".app-title-text");
 const agencyNameLabel = document.querySelector("#agencyNameLabel");
@@ -8029,6 +8031,10 @@ accessForm?.addEventListener("submit", (event) => {
 
 accessCodeInput?.addEventListener("input", () => {
   if (accessError) accessError.hidden = true;
+});
+
+forgotPasswordBtn?.addEventListener("click", () => {
+  if (forgotPasswordMessage) forgotPasswordMessage.hidden = false;
 });
 
 initializeApp();

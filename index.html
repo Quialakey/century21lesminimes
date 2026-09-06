@@ -19,12 +19,12 @@
     <link rel="shortcut icon" type="image/png" href="quialakey-icon.png?v=20260906-2" />
     <link rel="apple-touch-icon" sizes="838x838" href="quialakey-icon.png?v=20260906-2" />
     <link rel="manifest" href="manifest.webmanifest?v=20260906-2" />
-    <link rel="stylesheet" href="styles.css?v=20260906-31" />
+    <link rel="stylesheet" href="styles.css?v=20260906-32" />
   </head>
   <body class="is-access-locked">
     <div id="accessLock" class="access-lock" role="dialog" aria-modal="true" aria-labelledby="accessAgencyTitle">
       <section class="access-card">
-        <img class="access-logo" src="quialakey-logo-paysage.png?v=20260906-31" alt="Quialakey" />
+        <img class="access-logo" src="quialakey-logo-paysage.png?v=20260906-32" alt="Quialakey" />
         <h1 id="accessAgencyTitle">Agence</h1>
         <form id="accessForm" class="access-form">
           <label for="accessCodeInput">Code d'acc&egrave;s</label>
@@ -39,6 +39,8 @@
           <button type="submit">Entrer</button>
           <p id="accessError" class="access-error" hidden>Code incorrect.</p>
         </form>
+        <button id="forgotPasswordBtn" class="forgot-password-button" type="button">Mot de passe oubli&eacute;</button>
+        <p id="forgotPasswordMessage" class="forgot-password-message" hidden>Contacter : quialakey@gamil.com</p>
       </section>
     </div>
     <div id="saleCelebration" class="sale-celebration" aria-live="polite" hidden>
@@ -485,7 +487,7 @@
 
     <script>
       (() => {
-        const fallbackVersion = "20260906-31";
+        const fallbackVersion = "20260906-32";
         const loadApp = (version) => {
           const script = document.createElement("script");
           script.src = `app.js?v=${encodeURIComponent(version || fallbackVersion)}&t=${Date.now()}`;

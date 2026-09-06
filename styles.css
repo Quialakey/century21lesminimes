@@ -145,6 +145,39 @@ body.is-access-locked .app-shell {
   font-weight: 800;
 }
 
+.forgot-password-button {
+  display: block;
+  width: max-content;
+  margin: 16px auto 0;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  font-family:
+    "Aptos Display",
+    "Segoe UI",
+    Roboto,
+    Arial,
+    sans-serif;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.forgot-password-button:hover,
+.forgot-password-button:focus-visible {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.forgot-password-message {
+  margin: 10px 0 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  text-align: center;
+}
+
 .sale-celebration {
   position: fixed;
   inset: 0;
