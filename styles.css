@@ -264,7 +264,9 @@ button {
   font-size: 15px;
   font-weight: 600;
   line-height: 1.2;
-  transform: translateY(-4px);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transform: translateY(-8px);
 }
 
 .eyebrow {
