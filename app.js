@@ -24,7 +24,7 @@ const supabaseUrl = "https://ivwvrtnbzvsxrsmqkrff.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2d3ZydG5ienZzeHJzbXFrcmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMjM3MjUsImV4cCI6MjA5ODc5OTcyNX0.-vxDlYB1L6t-NZnjEdrJXbpbQn1n-s3XCA--CEqcK-w";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260906-36";
+const appBuildVersion = "20260906-37";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -564,6 +564,8 @@ const settingsRowCountInput = document.querySelector("#settingsRowCountInput");
 const settingsSlotsInput = document.querySelector("#settingsSlotsInput");
 const settingsCategoriesList = document.querySelector("#settingsCategoriesList");
 const settingsReplacementsList = document.querySelector("#settingsReplacementsList");
+const settingsOrganizationContent = document.querySelector("#settingsOrganizationContent");
+const toggleSettingsOrganizationBtn = document.querySelector("#toggleSettingsOrganizationBtn");
 const toggleSettingsReplacementsBtn = document.querySelector("#toggleSettingsReplacementsBtn");
 const addSettingsReplacementBtn = document.querySelector("#addSettingsReplacementBtn");
 const settingsCelebrationInput = document.querySelector("#settingsCelebrationInput");
@@ -640,6 +642,7 @@ let shouldReloadCloudAfterCurrentCheck = false;
 let lastSlotCloudSeenAt = "";
 let lastAutomaticCloudRefreshAt = 0;
 let automaticCloudRefreshTimer = null;
+let areSettingsOrganizationVisible = true;
 let areSettingsReplacementsVisible = true;
 
 function getAccessAgencyTitle() {
@@ -5185,7 +5188,13 @@ function renderSettingsPanel() {
   if (settingsAccessLockInput) settingsAccessLockInput.checked = settingsDraft.accessLockEnabled !== false;
   if (settingsAccessCodeText) {
     settingsAccessCodeText.hidden = settingsDraft.accessLockEnabled === false;
-    settingsAccessCodeText.textContent = `Mot de passe : ${settingsDraft.accessCode || defaultAccessCode}`;
+    settingsAccessCodeText.textContent = `(Mot de passe : ${settingsDraft.accessCode || defaultAccessCode})`;
+  }
+  if (toggleSettingsOrganizationBtn) {
+    toggleSettingsOrganizationBtn.setAttribute("aria-expanded", String(areSettingsOrganizationVisible));
+  }
+  if (settingsOrganizationContent) {
+    settingsOrganizationContent.hidden = !areSettingsOrganizationVisible;
   }
   if (toggleSettingsReplacementsBtn) {
     toggleSettingsReplacementsBtn.setAttribute("aria-expanded", String(areSettingsReplacementsVisible));
@@ -8066,6 +8075,12 @@ accessForm?.addEventListener("submit", (event) => {
 
 accessCodeInput?.addEventListener("input", () => {
   if (accessError) accessError.hidden = true;
+});
+
+toggleSettingsOrganizationBtn?.addEventListener("click", () => {
+  updateSettingsDraftFromDom();
+  areSettingsOrganizationVisible = !areSettingsOrganizationVisible;
+  renderSettingsPanel();
 });
 
 toggleSettingsReplacementsBtn?.addEventListener("click", () => {

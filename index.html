@@ -19,12 +19,12 @@
     <link rel="shortcut icon" type="image/png" href="quialakey-icon.png?v=20260906-2" />
     <link rel="apple-touch-icon" sizes="838x838" href="quialakey-icon.png?v=20260906-2" />
     <link rel="manifest" href="manifest.webmanifest?v=20260906-2" />
-    <link rel="stylesheet" href="styles.css?v=20260906-36" />
+    <link rel="stylesheet" href="styles.css?v=20260906-37" />
   </head>
   <body class="is-access-locked">
     <div id="accessLock" class="access-lock" role="dialog" aria-modal="true" aria-labelledby="accessAgencyTitle">
       <section class="access-card">
-        <img class="access-logo" src="quialakey-logo-paysage.png?v=20260906-36" alt="Quialakey" />
+        <img class="access-logo" src="quialakey-logo-paysage.png?v=20260906-37" alt="Quialakey" />
         <h1 id="accessAgencyTitle">Agence</h1>
         <form id="accessForm" class="access-form">
           <label for="accessCodeInput">Code d'acc&egrave;s</label>
@@ -394,23 +394,39 @@
             <button id="closeSettingsBtn" class="close-button" type="button" aria-label="Fermer les réglages">x</button>
           </div>
 
+          <label class="settings-agency-name settings-agency-name-standalone">
+            Nom de l'agence
+            <input id="settingsAgencyNameInput" type="text" maxlength="80" autocomplete="off" placeholder="Agence" />
+          </label>
+
           <section class="settings-section">
-            <h3>Organisation du tableau</h3>
-            <label class="settings-agency-name">
-              Nom de l'agence
-              <input id="settingsAgencyNameInput" type="text" maxlength="80" autocomplete="off" placeholder="Agence" />
-            </label>
-            <div class="settings-grid">
-              <label>
-                Nombre de lignes
-                <input id="settingsRowCountInput" type="number" min="1" max="12" step="1" />
-              </label>
-              <label>
-                Cases par ligne
-                <input id="settingsSlotsInput" type="number" min="10" max="60" step="2" />
-              </label>
+            <div class="settings-section-heading">
+              <div class="settings-heading-title">
+                <h3>Organisation du tableau</h3>
+                <button
+                  id="toggleSettingsOrganizationBtn"
+                  class="settings-collapse-button"
+                  type="button"
+                  aria-expanded="true"
+                  aria-controls="settingsOrganizationContent"
+                >
+                  ▾
+                </button>
+              </div>
             </div>
-            <ol id="settingsCategoriesList" class="settings-list settings-categories-list"></ol>
+            <div id="settingsOrganizationContent" class="settings-organization-content">
+              <div class="settings-grid">
+                <label>
+                  Nombre de lignes
+                  <input id="settingsRowCountInput" type="number" min="1" max="12" step="1" />
+                </label>
+                <label>
+                  Cases par ligne
+                  <input id="settingsSlotsInput" type="number" min="10" max="60" step="2" />
+                </label>
+              </div>
+              <ol id="settingsCategoriesList" class="settings-list settings-categories-list"></ol>
+            </div>
           </section>
 
           <section class="settings-section settings-replacements-section">
@@ -442,13 +458,12 @@
           </section>
 
           <section class="settings-section settings-access-section">
-            <h3>Accès au tableau</h3>
+            <h3>Accès au tableau <em id="settingsAccessCodeText" class="settings-access-code" hidden>(Mot de passe : 2121)</em></h3>
             <label class="settings-switch-control">
               <span>Privatiser le tableau</span>
               <input id="settingsAccessLockInput" type="checkbox" role="switch" />
               <span class="settings-switch-track" aria-hidden="true"></span>
             </label>
-            <p id="settingsAccessCodeText" class="settings-access-code" hidden>Mot de passe : 2121</p>
           </section>
 
           <button class="settings-save-button" type="submit">Enregistrer les réglages</button>
@@ -508,7 +523,7 @@
 
     <script>
       (() => {
-        const fallbackVersion = "20260906-36";
+        const fallbackVersion = "20260906-37";
         const loadApp = (version) => {
           const script = document.createElement("script");
           script.src = `app.js?v=${encodeURIComponent(version || fallbackVersion)}&t=${Date.now()}`;
