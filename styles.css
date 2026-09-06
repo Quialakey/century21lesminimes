@@ -248,6 +248,24 @@ button {
   justify-self: center;
 }
 
+.topbar > .registry-switcher {
+  justify-self: start;
+}
+
+.registry-switcher {
+  display: grid;
+  width: 320px;
+  gap: 6px;
+}
+
+.agency-name-label {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
 .eyebrow {
   margin: 0 0 4px;
   color: var(--muted);
@@ -933,6 +951,10 @@ h3 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.settings-agency-name {
+  width: 100%;
 }
 
 .settings-form label {
@@ -2936,6 +2958,12 @@ body.is-moving-key .photo-hover {
 
   .topbar > div:not(.top-actions),
   .top-actions {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .topbar > .registry-switcher,
+  .registry-switcher {
     width: 100%;
     justify-self: stretch;
   }

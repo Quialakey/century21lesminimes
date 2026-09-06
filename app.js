@@ -24,7 +24,7 @@ const supabaseUrl = "https://ivwvrtnbzvsxrsmqkrff.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2d3ZydG5ienZzeHJzbXFrcmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMjM3MjUsImV4cCI6MjA5ODc5OTcyNX0.-vxDlYB1L6t-NZnjEdrJXbpbQn1n-s3XCA--CEqcK-w";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260830-6";
+const appBuildVersion = "20260906-3";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -130,6 +130,7 @@ function createReplacementId() {
 
 function getDefaultTableSettings() {
   return {
+    agencyName: "Agence",
     categories: defaultCategoryLabels.map((label) => ({
       id: label,
       label,
@@ -203,8 +204,10 @@ function normalizeTableSettings(value) {
   }
   const addressReplacements = sortAddressReplacements(normalizedAddressReplacements);
   const saleCelebrationEnabled = source.saleCelebrationEnabled !== false;
+  const agencyName = String(source.agencyName || fallback.agencyName).trim() || fallback.agencyName;
 
   return {
+    agencyName,
     categories: categories.length ? categories : fallback.categories,
     slotsPerCategory,
     addressReplacements,
@@ -453,6 +456,7 @@ const keySetOptions = [
 
 const appTitle = document.querySelector("#appTitle");
 const appTitleText = document.querySelector(".app-title-text");
+const agencyNameLabel = document.querySelector("#agencyNameLabel");
 const registryToggleBtn = document.querySelector("#registryToggleBtn");
 const topActions = document.querySelector(".top-actions");
 const grid = document.querySelector("#keyGrid");
@@ -535,6 +539,7 @@ const settingsDataBtn = document.querySelector("#settingsDataBtn");
 const settingsPanel = document.querySelector("#settingsPanel");
 const closeSettingsBtn = document.querySelector("#closeSettingsBtn");
 const settingsForm = document.querySelector("#settingsForm");
+const settingsAgencyNameInput = document.querySelector("#settingsAgencyNameInput");
 const settingsRowCountInput = document.querySelector("#settingsRowCountInput");
 const settingsSlotsInput = document.querySelector("#settingsSlotsInput");
 const settingsCategoriesList = document.querySelector("#settingsCategoriesList");
@@ -2173,6 +2178,7 @@ function updateRegistryHeader() {
   const targetRegistry = activeRegistry === "location" ? "transaction" : "location";
   const targetConfig = registryConfig[targetRegistry];
   appTitleText.textContent = config.title;
+  if (agencyNameLabel) agencyNameLabel.textContent = tableSettings?.agencyName || "Agence";
   document.title = "Quialakey";
   registryToggleBtn.textContent = config.toggleLabel;
   rentedBtn.textContent = config.archiveActionLabel;
@@ -4944,6 +4950,10 @@ function cloneTableSettings(settings = tableSettings) {
 function updateSettingsDraftFromDom() {
   if (!settingsDraft) return;
 
+  if (settingsAgencyNameInput) {
+    settingsDraft.agencyName = settingsAgencyNameInput.value.trim() || "Agence";
+  }
+
   const previousCategories = settingsDraft.categories || [];
   const categoryItems = settingsCategoriesList ? [...settingsCategoriesList.querySelectorAll("[data-settings-category-index]")] : [];
   if (categoryItems.length) {
@@ -5082,6 +5092,7 @@ function renderSettingsPanel() {
   if (!settingsPanel || !settingsForm) return;
   if (!settingsDraft) settingsDraft = cloneTableSettings();
 
+  if (settingsAgencyNameInput) settingsAgencyNameInput.value = settingsDraft.agencyName || "Agence";
   if (settingsRowCountInput) settingsRowCountInput.value = String(settingsDraft.categories.length);
   if (settingsSlotsInput) settingsSlotsInput.value = String(settingsDraft.slotsPerCategory || defaultSlotsPerCategory);
   if (settingsCelebrationInput) settingsCelebrationInput.checked = settingsDraft.saleCelebrationEnabled !== false;
@@ -7775,6 +7786,7 @@ settingsForm?.addEventListener("submit", async (event) => {
     );
   }
   closeSettingsPanel();
+  updateRegistryHeader();
   render();
   if (saved) await syncCloudAfterAction();
 });
