@@ -24,7 +24,7 @@ const supabaseUrl = "https://ivwvrtnbzvsxrsmqkrff.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2d3ZydG5ienZzeHJzbXFrcmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMjM3MjUsImV4cCI6MjA5ODc5OTcyNX0.-vxDlYB1L6t-NZnjEdrJXbpbQn1n-s3XCA--CEqcK-w";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260907-6";
+const appBuildVersion = "20260907-7";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -5322,6 +5322,7 @@ function getResettableStorageKeys() {
     sharedContactsStorageKey,
     appActivityLogStorageKey,
     hiddenGlobalHistoryStorageKey,
+    tableSettingsStorageKey,
     registryConfig.location.keysStorageKey,
     registryConfig.location.archivesStorageKey,
     registryConfig.transaction.keysStorageKey,
@@ -5338,9 +5339,28 @@ async function deleteResetKeySlotsFromCloud() {
   }
 }
 
+async function deleteAutomaticBackupsFromCloud() {
+  if (!supabaseClient) return;
+  const { error } = await supabaseClient.from("app_state").delete().like("key", `${automaticBackupKeyPrefix}%`);
+  if (error) throw error;
+}
+
+function resetAccessSettings() {
+  tableSettings = normalizeTableSettings({
+    ...tableSettings,
+    accessCode: defaultAccessCode,
+    accessLockEnabled: false,
+    accessLockVersion: Date.now(),
+  });
+  setRuntimeStorageValue(tableSettingsStorageKey, JSON.stringify(tableSettings));
+  removeRuntimeStorageValue(accessUnlockedStorageKey);
+  updateAccessLockState();
+}
+
 async function syncResetDataToCloud() {
   if (!supabaseClient) return;
   await deleteResetKeySlotsFromCloud();
+  await deleteAutomaticBackupsFromCloud();
   dirtyCloudKeys = new Set(getResettableStorageKeys());
   Object.values(registryConfig).forEach((config) => {
     dirtyKeySlots.set(config.keysStorageKey, new Set(makeInitialKeys().map((key) => key.id)));
@@ -5352,7 +5372,7 @@ async function syncResetDataToCloud() {
 
 async function resetAllTableData() {
   const firstConfirmation = window.confirm(
-    "Cette action va effacer les tableaux Location et Transaction, les archives, les historiques et les intervenants. Les sauvegardes et les réglages seront conservés. Continuer ?",
+    "Cette action va effacer les tableaux Location et Transaction, les archives, les historiques, les intervenants, les sauvegardes et le mot de passe. Les réglages d'organisation du tableau seront conservés. Continuer ?",
   );
   if (!firstConfirmation) return;
 
@@ -5372,6 +5392,8 @@ async function resetAllTableData() {
   getResettableStorageKeys().forEach((storageKey) => {
     if (!isKeysStorageKey(storageKey)) setRuntimeStorageValue(storageKey, "[]");
   });
+  removeAutomaticBackupsFromLocalStorage();
+  resetAccessSettings();
   Object.values(registryConfig).forEach((config) => {
     setRuntimeStorageValue(config.keysStorageKey, JSON.stringify(makeInitialKeys()));
   });
