@@ -24,12 +24,12 @@ const supabaseUrl = "https://ivwvrtnbzvsxrsmqkrff.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2d3ZydG5ienZzeHJzbXFrcmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMjM3MjUsImV4cCI6MjA5ODc5OTcyNX0.-vxDlYB1L6t-NZnjEdrJXbpbQn1n-s3XCA--CEqcK-w";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260907-7";
+const appBuildVersion = "20260907-8";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
 const accessUnlockedStorageKey = "quialakey-access-unlocked-v1";
-const defaultAccessCode = "2121";
+const defaultAccessCode = "0000";
 const registryStorageKey = "cles-location-active-registry-v1";
 const sharedContactsStorageKey = "cles-location-intervenants-v1";
 const appActivityLogStorageKey = "cles-global-activity-v1";
@@ -143,7 +143,7 @@ function getDefaultTableSettings() {
     addressReplacements: defaultAddressReplacements.map((item) => ({ ...item })),
     saleCelebrationEnabled: true,
     accessCode: defaultAccessCode,
-    accessLockEnabled: true,
+    accessLockEnabled: false,
     accessLockVersion: 1,
   };
 }
@@ -211,7 +211,7 @@ function normalizeTableSettings(value) {
   const saleCelebrationEnabled = source.saleCelebrationEnabled !== false;
   const agencyName = String(source.agencyName || fallback.agencyName).trim() || fallback.agencyName;
   const accessCode = String(source.accessCode || fallback.accessCode || defaultAccessCode).trim() || defaultAccessCode;
-  const accessLockEnabled = source.accessLockEnabled !== false;
+  const accessLockEnabled = source.accessLockEnabled === true;
   const accessLockVersion = Number.isFinite(Number(source.accessLockVersion))
     ? Number(source.accessLockVersion)
     : fallback.accessLockVersion;
@@ -5313,7 +5313,7 @@ function updateSettingsButtonAvailability(event = {}) {
 
 function updateResetTablesButtonAvailability(event = {}) {
   if (!resetTablesBtn) return;
-  const isUnlocked = Boolean(settingsPanel && !settingsPanel.hidden && event.ctrlKey && event.altKey);
+  const isUnlocked = Boolean(settingsPanel && !settingsPanel.hidden && event.ctrlKey && event.shiftKey);
   resetTablesBtn.hidden = !isUnlocked;
 }
 
