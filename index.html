@@ -18,8 +18,8 @@
     <link rel="icon" type="image/png" sizes="838x838" href="quialakey-icon-20260907-5.png" />
     <link rel="shortcut icon" type="image/png" href="quialakey-icon-20260907-5.png" />
     <link rel="apple-touch-icon" sizes="838x838" href="quialakey-icon-20260907-5.png" />
-    <link rel="manifest" href="manifest.webmanifest?v=20260907-5" />
-    <link rel="stylesheet" href="styles.css?v=20260907-5" />
+    <link rel="manifest" href="manifest.webmanifest?v=20260907-6" />
+    <link rel="stylesheet" href="styles.css?v=20260907-6" />
   </head>
   <body class="is-access-locked">
     <div id="accessLock" class="access-lock" role="dialog" aria-modal="true" aria-labelledby="accessAgencyTitle">
@@ -471,6 +471,7 @@
           </section>
 
           <button class="settings-save-button" type="submit">Enregistrer les réglages</button>
+          <button id="resetTablesBtn" class="settings-reset-button" type="button" hidden>Réinitialiser les tableaux</button>
         </form>
       </aside>
 
@@ -527,7 +528,7 @@
 
     <script>
       (() => {
-        const fallbackVersion = "20260907-5";
+        const fallbackVersion = "20260907-6";
         const loadApp = (version) => {
           const script = document.createElement("script");
           script.src = `app.js?v=${encodeURIComponent(version || fallbackVersion)}&t=${Date.now()}`;

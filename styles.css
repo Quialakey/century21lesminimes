@@ -1283,7 +1283,8 @@ h3 {
 
 .settings-secondary-button,
 .settings-remove-button,
-.settings-save-button {
+.settings-save-button,
+.settings-reset-button {
   min-height: 34px;
   padding: 0 10px;
   border-radius: 7px;
@@ -1297,6 +1298,12 @@ h3 {
   color: #f4f7f5;
   background: #315d73;
   border: 1px solid #6f8fa0;
+}
+
+.settings-reset-button {
+  color: #2a1110;
+  background: #f0b2aa;
+  border: 1px solid #c7554c;
 }
 
 .settings-remove-button {

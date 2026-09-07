@@ -24,7 +24,7 @@ const supabaseUrl = "https://ivwvrtnbzvsxrsmqkrff.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2d3ZydG5ienZzeHJzbXFrcmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMjM3MjUsImV4cCI6MjA5ODc5OTcyNX0.-vxDlYB1L6t-NZnjEdrJXbpbQn1n-s3XCA--CEqcK-w";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260907-5";
+const appBuildVersion = "20260907-6";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -572,6 +572,7 @@ const settingsCelebrationInput = document.querySelector("#settingsCelebrationInp
 const settingsAccessLockInput = document.querySelector("#settingsAccessLockInput");
 const settingsAccessCodeText = document.querySelector("#settingsAccessCodeText");
 const editSettingsAccessCodeBtn = document.querySelector("#editSettingsAccessCodeBtn");
+const resetTablesBtn = document.querySelector("#resetTablesBtn");
 const globalHistoryPanel = document.querySelector("#globalHistoryPanel");
 const globalHistoryEyebrow = document.querySelector("#globalHistoryEyebrow");
 const globalHistoryTitle = document.querySelector("#globalHistoryTitle");
@@ -5272,11 +5273,13 @@ function openSettingsPanel() {
   areSettingsReplacementsVisible = false;
   settingsPanel.hidden = false;
   renderSettingsPanel();
+  updateResetTablesButtonAvailability();
 }
 
 function closeSettingsPanel() {
   if (settingsPanel) settingsPanel.hidden = true;
   settingsDraft = null;
+  updateResetTablesButtonAvailability();
 }
 
 function openSavedBackupsPanel() {
@@ -5306,6 +5309,91 @@ function updateSettingsButtonAvailability(event = {}) {
   const isUnlocked = Boolean(event.ctrlKey && event.altKey && settingsDataBtn.matches(":hover"));
   settingsDataBtn.classList.toggle("is-unlocked", isUnlocked);
   settingsDataBtn.setAttribute("aria-disabled", String(!isUnlocked));
+}
+
+function updateResetTablesButtonAvailability(event = {}) {
+  if (!resetTablesBtn) return;
+  const isUnlocked = Boolean(settingsPanel && !settingsPanel.hidden && event.ctrlKey && event.altKey);
+  resetTablesBtn.hidden = !isUnlocked;
+}
+
+function getResettableStorageKeys() {
+  return [
+    sharedContactsStorageKey,
+    appActivityLogStorageKey,
+    hiddenGlobalHistoryStorageKey,
+    registryConfig.location.keysStorageKey,
+    registryConfig.location.archivesStorageKey,
+    registryConfig.transaction.keysStorageKey,
+    registryConfig.transaction.archivesStorageKey,
+  ];
+}
+
+async function deleteResetKeySlotsFromCloud() {
+  if (!supabaseClient) return;
+
+  for (const { prefix } of getKeySlotStorageRows()) {
+    const { error } = await supabaseClient.from("app_state").delete().like("key", `${prefix}%`);
+    if (error) throw error;
+  }
+}
+
+async function syncResetDataToCloud() {
+  if (!supabaseClient) return;
+  await deleteResetKeySlotsFromCloud();
+  dirtyCloudKeys = new Set(getResettableStorageKeys());
+  Object.values(registryConfig).forEach((config) => {
+    dirtyKeySlots.set(config.keysStorageKey, new Set(makeInitialKeys().map((key) => key.id)));
+  });
+  savePendingCloudKeys();
+  saveDirtyKeySlots();
+  await Promise.all(getResettableStorageKeys().map((storageKey) => writeStorageKeyToCloudNow(storageKey, { force: true })));
+}
+
+async function resetAllTableData() {
+  const firstConfirmation = window.confirm(
+    "Cette action va effacer les tableaux Location et Transaction, les archives, les historiques et les intervenants. Les sauvegardes et les réglages seront conservés. Continuer ?",
+  );
+  if (!firstConfirmation) return;
+
+  const typedConfirmation = window.prompt('Pour confirmer, tape exactement : REINITIALISER');
+  if (typedConfirmation !== "REINITIALISER") return;
+
+  cloudSyncTimers.forEach((timer) => clearTimeout(timer));
+  cloudSyncTimers.clear();
+  dirtyCloudKeys = new Set();
+  failedCloudSyncKeys = new Set();
+  dirtyKeySlots = new Map();
+  cloudRowVersions = new Map();
+  savePendingCloudKeys();
+  saveDirtyKeySlots();
+  saveCloudRowVersions();
+
+  getResettableStorageKeys().forEach((storageKey) => {
+    if (!isKeysStorageKey(storageKey)) setRuntimeStorageValue(storageKey, "[]");
+  });
+  Object.values(registryConfig).forEach((config) => {
+    setRuntimeStorageValue(config.keysStorageKey, JSON.stringify(makeInitialKeys()));
+  });
+
+  activeKeyInfoDraft = null;
+  pendingNewKeyDraft = null;
+  selectedId = null;
+  selectedArchiveRecord = null;
+  selectedSetId = "main";
+  contacts = loadContacts();
+  keys = loadKeys();
+  archives = loadArchives();
+  render();
+  updateUndoButton();
+
+  try {
+    await syncResetDataToCloud();
+    await loadStorageFromCloud({ force: true });
+  } catch (error) {
+    console.warn("Supabase reset failed", error.message);
+    alert("La réinitialisation locale est faite, mais l'effacement en ligne a échoué. Vérifie la connexion puis réessaie.");
+  }
 }
 
 function importAllDataBackup(file) {
@@ -7921,16 +8009,19 @@ function updateCtrlMode(event = {}) {
 document.addEventListener("keydown", (event) => {
   updateImportButtonAvailability(event);
   updateSettingsButtonAvailability(event);
+  updateResetTablesButtonAvailability(event);
   updateCtrlMode(event);
 });
 document.addEventListener("keyup", (event) => {
   updateImportButtonAvailability(event);
   updateSettingsButtonAvailability(event);
+  updateResetTablesButtonAvailability(event);
   updateCtrlMode(event);
 });
 window.addEventListener("blur", () => {
   updateImportButtonAvailability();
   updateSettingsButtonAvailability();
+  updateResetTablesButtonAvailability();
   updateCtrlMode();
 });
 importDataBtn.addEventListener("click", (event) => {
@@ -8118,6 +8209,10 @@ editSettingsAccessCodeBtn?.addEventListener("click", () => {
   settingsDraft.accessCode = normalizedCode;
   settingsDraft.accessLockVersion = Date.now();
   renderSettingsPanel();
+});
+
+resetTablesBtn?.addEventListener("click", () => {
+  void resetAllTableData();
 });
 
 forgotPasswordBtn?.addEventListener("click", () => {
