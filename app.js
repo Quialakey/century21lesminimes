@@ -24,7 +24,7 @@ const supabaseUrl = "https://ivwvrtnbzvsxrsmqkrff.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2d3ZydG5ienZzeHJzbXFrcmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMjM3MjUsImV4cCI6MjA5ODc5OTcyNX0.-vxDlYB1L6t-NZnjEdrJXbpbQn1n-s3XCA--CEqcK-w";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260908-5";
+const appBuildVersion = "20260908-6";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -54,10 +54,10 @@ const automaticBackupRetentionCount = 2;
 const automaticBackupWeekday = 5;
 const automaticBackupHour = 12;
 const automaticBackupMinute = 0;
-const cloudPollIntervalMs = 3000;
-const mobileCloudPollIntervalMs = 2000;
-const cloudInteractionRefreshThrottleMs = 1200;
-const cloudWakeRefreshDelays = [0, 800, 2500];
+const cloudPollIntervalMs = 12000;
+const mobileCloudPollIntervalMs = 12000;
+const cloudInteractionRefreshThrottleMs = 5000;
+const cloudWakeRefreshDelays = [0, 2500];
 const cloudWriteDebounceMs = 300;
 const recentSlotReplayMs = 30000;
 const pendingLocalEditGraceMs = 10 * 60 * 1000;
@@ -8189,13 +8189,6 @@ window.addEventListener("focus", () => {
 });
 window.addEventListener("pageshow", () => {
   queueWakeCloudRefreshes();
-});
-["pointerdown", "touchstart"].forEach((eventName) => {
-  window.addEventListener(
-    eventName,
-    () => requestAutomaticCloudRefresh({ force: true }),
-    { capture: true, passive: true },
-  );
 });
 window.addEventListener("resize", () => requestAnimationFrame(syncSignatureHeightToActions));
 
