@@ -24,7 +24,7 @@ const supabaseUrl = "https://ivwvrtnbzvsxrsmqkrff.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2d3ZydG5ienZzeHJzbXFrcmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMjM3MjUsImV4cCI6MjA5ODc5OTcyNX0.-vxDlYB1L6t-NZnjEdrJXbpbQn1n-s3XCA--CEqcK-w";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260907-8";
+const appBuildVersion = "20260908-1";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -4628,6 +4628,15 @@ function renderGlobalHistoryItems(targetList = globalHistoryList, registryFilter
   };
   const getGlobalHistoryTitleText = (entry) => {
     const actionLabel = getGlobalHistoryActionLabel(entry.action);
+    if (
+      String(entry.action || "")
+        .toLocaleLowerCase("fr-FR")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .includes("modification reglages")
+    ) {
+      return actionLabel;
+    }
     const keyLabelEntry = getTitleKeyLabel(entry.title);
     if (!keyLabelEntry) {
       return normalizeMovementWord(removeRedundantRegistryLabel(entry, `${actionLabel} - ${entry.title}`));
@@ -4782,8 +4791,7 @@ function renderGlobalHistoryItems(targetList = globalHistoryList, registryFilter
     const isInlineDetailAction =
       normalizedEntryAction.includes("transfert") ||
       normalizedEntryAction.includes("ajout jeu") ||
-      normalizedEntryAction.includes("creation jeu") ||
-      normalizedEntryAction.includes("modification reglages");
+      normalizedEntryAction.includes("creation jeu");
     const isRegisteredAction = String(entry.actor || "").toLocaleLowerCase("fr-FR") === "action enregistr\u00e9e";
     const fallbackActorParts =
       isRegisteredAction && ["in", "out", "signed", "removed"].includes(actionClass)
@@ -4797,6 +4805,7 @@ function renderGlobalHistoryItems(targetList = globalHistoryList, registryFilter
     const movementActor = isRegisteredAction && fallbackActorName ? fallbackActorName : entry.actor;
     const movementPhone = entry.actorPhone || getHistoryPhone(fallbackActorPhone);
     if (["in", "out", "signed", "removed"].includes(actionClass)) visibleDetails = "";
+    if (normalizedEntryAction.includes("modification reglages")) visibleDetails = "";
     title.textContent = getGlobalHistoryTitleText(entry);
     reservationDateLine.className = "reservation-date-line";
     reservationDateLine.textContent = reservationDateDetail || "";
@@ -8003,11 +8012,7 @@ settingsForm?.addEventListener("submit", async (event) => {
   updateSettingsDraftFromDom();
   const saved = saveTableSettings(settingsDraft);
   if (saved) {
-    logActivity(
-      "Modification r\u00e9glages",
-      "Tableau",
-      `${getTableCategories().length} lignes - ${getSlotsPerCategory()} cases par ligne`,
-    );
+    logActivity("Modification r\u00e9glages", "", "");
   }
   closeSettingsPanel();
   updateRegistryHeader();
