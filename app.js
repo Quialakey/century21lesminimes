@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260908-12";
+const appBuildVersion = "20260908-13";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -46,7 +46,7 @@ const cloudVersionsStorageKey = "cles-cloud-row-versions-v1";
 const pendingCloudKeysStorageKey = "cles-pending-cloud-keys-v1";
 const dirtyKeySlotsStorageKey = "cles-dirty-key-slots-v1";
 const syncMetadataVersionStorageKey = "cles-sync-metadata-version-v1";
-const syncMetadataVersion = "20260908-10-fbvsgvdrdblxvmzutpjk";
+const syncMetadataVersion = "20260908-13-fbvsgvdrdblxvmzutpjk";
 const cloudSyncHeartbeatStorageKey = "cles-cloud-sync-heartbeat-v1";
 const lastLocalEditStorageKey = "cles-last-local-edit-v1";
 const keySlotCloudSeparator = "::slot::";
@@ -61,7 +61,8 @@ const cloudInteractionRefreshThrottleMs = 5000;
 const cloudWakeRefreshDelays = [0, 2500];
 const cloudWriteDebounceMs = 300;
 const recentSlotReplayMs = 30000;
-const pendingLocalEditGraceMs = 10 * 60 * 1000;
+const pendingLocalEditGraceMs = 12 * 1000;
+const recentKeySlotMemoryMs = 12 * 1000;
 const runtimeStorageFallback = new Map();
 const browserStorage = (() => {
   try {
@@ -1246,7 +1247,7 @@ function preserveRecentlyClearedKeySlots(storageKey, value) {
 
   const now = Date.now();
   [...recentlyClearedKeySlots].forEach(([memoryKey, clearedAt]) => {
-    if (now - clearedAt > 120000) recentlyClearedKeySlots.delete(memoryKey);
+    if (now - clearedAt > recentKeySlotMemoryMs) recentlyClearedKeySlots.delete(memoryKey);
   });
   if (!recentlyClearedKeySlots.size) return value;
 
@@ -1263,7 +1264,7 @@ function preserveRecentlyForcedKeySlots(storageKey, value) {
 
   const now = Date.now();
   [...recentlyForcedKeySlots].forEach(([memoryKey, entry]) => {
-    if (now - entry.updatedAt > 120000) recentlyForcedKeySlots.delete(memoryKey);
+    if (now - entry.updatedAt > recentKeySlotMemoryMs) recentlyForcedKeySlots.delete(memoryKey);
   });
   if (!recentlyForcedKeySlots.size) return value;
 
@@ -1683,8 +1684,6 @@ async function touchCloudSyncHeartbeat() {
   }
 
   if (error) throw error;
-  cloudRowVersions.set(cloudSyncHeartbeatStorageKey, updatedAt);
-  saveCloudRowVersions();
 }
 
 function scheduleStorageKeySync(storageKey, delay = cloudWriteDebounceMs) {
