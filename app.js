@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260908-13";
+const appBuildVersion = "20260908-14";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -46,7 +46,7 @@ const cloudVersionsStorageKey = "cles-cloud-row-versions-v1";
 const pendingCloudKeysStorageKey = "cles-pending-cloud-keys-v1";
 const dirtyKeySlotsStorageKey = "cles-dirty-key-slots-v1";
 const syncMetadataVersionStorageKey = "cles-sync-metadata-version-v1";
-const syncMetadataVersion = "20260908-13-fbvsgvdrdblxvmzutpjk";
+const syncMetadataVersion = "20260908-14-fbvsgvdrdblxvmzutpjk";
 const cloudSyncHeartbeatStorageKey = "cles-cloud-sync-heartbeat-v1";
 const lastLocalEditStorageKey = "cles-last-local-edit-v1";
 const keySlotCloudSeparator = "::slot::";
@@ -1039,7 +1039,7 @@ function getBackupStorageKeys() {
 }
 
 function getCloudBaseStorageKeys() {
-  return [...getBackupStorageKeys().filter((storageKey) => !isKeysStorageKey(storageKey)), cloudSyncHeartbeatStorageKey];
+  return [...getBackupStorageKeys(), cloudSyncHeartbeatStorageKey];
 }
 
 function getKeyStorageKeys() {
@@ -1746,6 +1746,7 @@ async function writeKeySlotsToCloud(storageKey, options = {}) {
     syncedKeySnapshots.set(keyId, JSON.stringify(normalizeKey(key)));
   }
 
+  await writeFullKeyStorageMirrorToCloud(storageKey, savedKeys);
   clearSyncedDirtyKeySlots(storageKey, syncedKeySnapshots);
   if (getDirtyKeySlotIds(storageKey).size) {
     dirtyCloudKeys.add(storageKey);
@@ -1757,6 +1758,33 @@ async function writeKeySlotsToCloud(storageKey, options = {}) {
   savePendingCloudKeys();
   saveCloudRowVersions();
   scheduleCloudSyncHeartbeat();
+}
+
+async function writeFullKeyStorageMirrorToCloud(storageKey, savedKeys) {
+  const normalizedKeys = (Array.isArray(savedKeys) ? savedKeys : []).map(normalizeKey);
+  let updatedAt = new Date().toISOString();
+  let expectedUpdatedAt = cloudRowVersions.get(storageKey) || null;
+  let { error } = await upsertCloudRow(storageKey, normalizedKeys, expectedUpdatedAt, updatedAt);
+
+  if (error && isStaleCloudWriteError(error)) {
+    const { data: remoteRow, error: remoteError } = await supabaseClient
+      .from("app_state")
+      .select("key,value,updated_at")
+      .eq("key", storageKey)
+      .maybeSingle();
+    if (remoteError) {
+      console.warn("Supabase full key mirror version check failed", storageKey, remoteError.message);
+      return;
+    }
+    updatedAt = new Date().toISOString();
+    ({ error } = await upsertCloudRow(storageKey, normalizedKeys, remoteRow?.updated_at || null, updatedAt));
+  }
+
+  if (error) {
+    console.warn("Supabase full key mirror failed", storageKey, error.message);
+    return;
+  }
+  cloudRowVersions.set(storageKey, updatedAt);
 }
 
 function syncStorageKeyToCloud(storageKey, options = {}) {
