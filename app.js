@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260908-15";
+const appBuildVersion = "20260908-16";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -46,7 +46,7 @@ const cloudVersionsStorageKey = "cles-cloud-row-versions-v1";
 const pendingCloudKeysStorageKey = "cles-pending-cloud-keys-v1";
 const dirtyKeySlotsStorageKey = "cles-dirty-key-slots-v1";
 const syncMetadataVersionStorageKey = "cles-sync-metadata-version-v1";
-const syncMetadataVersion = "20260908-15-fbvsgvdrdblxvmzutpjk";
+const syncMetadataVersion = "20260908-16-fbvsgvdrdblxvmzutpjk";
 const cloudSyncHeartbeatStorageKey = "cles-cloud-sync-heartbeat-v1";
 const lastLocalEditStorageKey = "cles-last-local-edit-v1";
 const keySlotCloudSeparator = "::slot::";
@@ -2321,6 +2321,11 @@ async function loadStorageFromCloud(options = {}) {
     const changedRowsByKey = new Map((await loadCloudRowsByKeys(cloudOnlyChangedKeys)).map((row) => [row.key, row]));
     unappliedRecentSlotRows.forEach((row) => changedRowsByKey.set(row.key, row));
     const changedRows = [...changedRowsByKey.values()];
+    const changedKeyStorageKeys = new Set(changedRows.filter((row) => isKeysStorageKey(row.key)).map((row) => row.key));
+    let refreshedSlotRows = [];
+    if (changedKeyStorageKeys.size) {
+      refreshedSlotRows = await loadKeySlotCloudRows();
+    }
 
     isApplyingCloudState = true;
     changedRows.forEach((row) => {
@@ -2328,10 +2333,16 @@ async function loadStorageFromCloud(options = {}) {
       if (isKeySlotCloudKey(row.key)) {
         saveKeySlotCloudRow(row);
         rememberSlotCloudSeenAt(row);
+      } else if (isKeysStorageKey(row.key)) {
+        // Le miroir complet peut être en retard; les lignes par case restent la source fiable après le chargement initial.
+        return;
       } else {
         saveStorageValue(row.key, stringifyCloudValue(row.value));
       }
     });
+    if (refreshedSlotRows.length) {
+      applyInitialCloudKeyStorageState([], refreshedSlotRows, new Set());
+    }
     deletedKeys.forEach((key) => {
       if (!isKeySlotCloudKey(key) && !isKeysStorageKey(key)) removeRuntimeStorageValue(key);
     });
