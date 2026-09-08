@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260908-16";
+const appBuildVersion = "20260908-17";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -46,7 +46,7 @@ const cloudVersionsStorageKey = "cles-cloud-row-versions-v1";
 const pendingCloudKeysStorageKey = "cles-pending-cloud-keys-v1";
 const dirtyKeySlotsStorageKey = "cles-dirty-key-slots-v1";
 const syncMetadataVersionStorageKey = "cles-sync-metadata-version-v1";
-const syncMetadataVersion = "20260908-16-fbvsgvdrdblxvmzutpjk";
+const syncMetadataVersion = "20260908-17-fbvsgvdrdblxvmzutpjk";
 const cloudSyncHeartbeatStorageKey = "cles-cloud-sync-heartbeat-v1";
 const lastLocalEditStorageKey = "cles-last-local-edit-v1";
 const keySlotCloudSeparator = "::slot::";
@@ -1491,6 +1491,9 @@ function getDirtyKeySlotIds(storageKey) {
   if (storageKey === getRegistryConfig().keysStorageKey && activeKeyInfoDraft?.keyId) {
     savedKeyIds.add(activeKeyInfoDraft.keyId);
   }
+  if (storageKey === getRegistryConfig().keysStorageKey && selectedId && !selectedArchiveRecord) {
+    savedKeyIds.add(selectedId);
+  }
   recentlyForcedKeySlots.forEach((_, memoryKey) => {
     const parts = getRecentKeySlotMemoryParts(memoryKey);
     if (parts.storageKey === storageKey) savedKeyIds.add(parts.keyId);
@@ -2277,13 +2280,15 @@ async function loadStorageFromCloud(options = {}) {
       return;
     }
 
-    const [{ data: baseMetadata, error: metadataError }, slotMetadata, recentSlotRows] = await Promise.all([
+    const shouldForceSlotReload = force && !hasRecentLocalEdit();
+    const [{ data: baseMetadata, error: metadataError }, slotMetadata, recentSlotRows, forcedSlotRows] = await Promise.all([
       supabaseClient
         .from("app_state")
         .select("key,updated_at")
         .in("key", getCloudBaseStorageKeys()),
       loadKeySlotCloudRows("key,updated_at"),
       loadRecentKeySlotCloudRows(),
+      shouldForceSlotReload ? loadKeySlotCloudRows() : Promise.resolve([]),
     ]);
     if (metadataError) throw metadataError;
     const metadata = [...(Array.isArray(baseMetadata) ? baseMetadata : []), ...slotMetadata];
@@ -2309,14 +2314,14 @@ async function loadStorageFromCloud(options = {}) {
       await Promise.all([...new Set(locallyDirtyMissingKeys.map(getSyncStorageKeyForCloudKey))].map((key) => syncStorageKeyToCloud(key)));
     }
     const deletedKeys = missingRemoteKeys.filter((key) => !locallyDirtyMissingKeys.includes(key));
-    if (!changedKeys.length && !deletedKeys.length && !unappliedRecentSlotRows.length) return;
+    if (!changedKeys.length && !deletedKeys.length && !unappliedRecentSlotRows.length && !forcedSlotRows.length) return;
 
     const locallyDirtyChangedKeys = changedKeys.filter(hasPendingCloudRowChange);
     if (locallyDirtyChangedKeys.length) {
       await Promise.all([...new Set(locallyDirtyChangedKeys.map(getSyncStorageKeyForCloudKey))].map((key) => syncStorageKeyToCloud(key)));
     }
     const cloudOnlyChangedKeys = changedKeys.filter((key) => !locallyDirtyChangedKeys.includes(key));
-    if (!cloudOnlyChangedKeys.length && !deletedKeys.length && !unappliedRecentSlotRows.length) return;
+    if (!cloudOnlyChangedKeys.length && !deletedKeys.length && !unappliedRecentSlotRows.length && !forcedSlotRows.length) return;
 
     const changedRowsByKey = new Map((await loadCloudRowsByKeys(cloudOnlyChangedKeys)).map((row) => [row.key, row]));
     unappliedRecentSlotRows.forEach((row) => changedRowsByKey.set(row.key, row));
@@ -2340,8 +2345,9 @@ async function loadStorageFromCloud(options = {}) {
         saveStorageValue(row.key, stringifyCloudValue(row.value));
       }
     });
-    if (refreshedSlotRows.length) {
-      applyInitialCloudKeyStorageState([], refreshedSlotRows, new Set());
+    const slotRowsToApply = forcedSlotRows.length ? forcedSlotRows : refreshedSlotRows;
+    if (slotRowsToApply.length) {
+      applyInitialCloudKeyStorageState([], slotRowsToApply, new Set());
     }
     deletedKeys.forEach((key) => {
       if (!isKeySlotCloudKey(key) && !isKeysStorageKey(key)) removeRuntimeStorageValue(key);
@@ -3590,6 +3596,7 @@ function captureActiveKeyInfoDraft() {
     markLocalEdit();
     setRuntimeStorageValue(getRegistryConfig().keysStorageKey, JSON.stringify(keys));
     scheduleStorageKeySync(getRegistryConfig().keysStorageKey);
+    scheduleDirectKeyStorageFlush(getRegistryConfig().keysStorageKey);
   } catch (error) {
     console.warn("Local draft save failed", error.message);
   }
