@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260908-14";
+const appBuildVersion = "20260908-15";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -46,7 +46,7 @@ const cloudVersionsStorageKey = "cles-cloud-row-versions-v1";
 const pendingCloudKeysStorageKey = "cles-pending-cloud-keys-v1";
 const dirtyKeySlotsStorageKey = "cles-dirty-key-slots-v1";
 const syncMetadataVersionStorageKey = "cles-sync-metadata-version-v1";
-const syncMetadataVersion = "20260908-14-fbvsgvdrdblxvmzutpjk";
+const syncMetadataVersion = "20260908-15-fbvsgvdrdblxvmzutpjk";
 const cloudSyncHeartbeatStorageKey = "cles-cloud-sync-heartbeat-v1";
 const lastLocalEditStorageKey = "cles-last-local-edit-v1";
 const keySlotCloudSeparator = "::slot::";
@@ -647,6 +647,7 @@ let lastSlotCloudSeenAt = "";
 let lastAutomaticCloudRefreshAt = 0;
 let automaticCloudRefreshTimer = null;
 let cloudHeartbeatTimer = null;
+let directCloudFlushTimers = new Map();
 let areSettingsOrganizationVisible = false;
 let areSettingsReplacementsVisible = false;
 
@@ -1401,6 +1402,32 @@ async function upsertCloudRow(storageKey, value, expectedUpdatedAt = null, updat
   return supabaseClient.from("app_state").upsert(getCloudWritePayload(storageKey, value, updatedAt, expectedUpdatedAt));
 }
 
+async function upsertCloudRowWithFreshVersion(storageKey, value) {
+  if (!supabaseClient) return null;
+  const { data: remoteRow, error: versionError } = await supabaseClient
+    .from("app_state")
+    .select("key,value,updated_at")
+    .eq("key", storageKey)
+    .maybeSingle();
+  if (versionError) throw versionError;
+
+  let updatedAt = new Date().toISOString();
+  let { error } = await upsertCloudRow(storageKey, value, remoteRow?.updated_at || null, updatedAt);
+  if (error && isStaleCloudWriteError(error)) {
+    const { data: latestRemoteRow, error: latestRemoteError } = await supabaseClient
+      .from("app_state")
+      .select("key,value,updated_at")
+      .eq("key", storageKey)
+      .maybeSingle();
+    if (latestRemoteError) throw latestRemoteError;
+    updatedAt = new Date().toISOString();
+    ({ error } = await upsertCloudRow(storageKey, value, latestRemoteRow?.updated_at || null, updatedAt));
+  }
+  if (error) throw error;
+  cloudRowVersions.set(storageKey, updatedAt);
+  return updatedAt;
+}
+
 function loadPendingCloudKeys() {
   try {
     const saved = JSON.parse(getRuntimeStorageValue(pendingCloudKeysStorageKey) || "[]");
@@ -1699,6 +1726,49 @@ function scheduleStorageKeySync(storageKey, delay = cloudWriteDebounceMs) {
       syncStorageKeyToCloud(storageKey);
     }, delay),
   );
+}
+
+function scheduleDirectKeyStorageFlush(storageKey, delay = 250) {
+  if (!supabaseClient || !isKeysStorageKey(storageKey)) return;
+  clearTimeout(directCloudFlushTimers.get(storageKey));
+  directCloudFlushTimers.set(
+    storageKey,
+    setTimeout(() => {
+      directCloudFlushTimers.delete(storageKey);
+      flushKeyStorageDirectlyToCloud(storageKey).catch((error) => {
+        dirtyCloudKeys.add(storageKey);
+        failedCloudSyncKeys.add(storageKey);
+        savePendingCloudKeys();
+        console.warn("Supabase direct key sync failed", storageKey, error.message);
+      });
+    }, delay),
+  );
+}
+
+async function flushKeyStorageDirectlyToCloud(storageKey) {
+  const savedKeys = parseStoredArray(storageKey, makeInitialKeys()).map(normalizeKey);
+  const keyById = new Map(savedKeys.map((key) => [key.id, key]));
+  const keyIds = [...getDirtyKeySlotIds(storageKey)];
+  if (!keyIds.length) return;
+
+  const syncedKeySnapshots = new Map();
+  for (const keyId of keyIds) {
+    const key = keyById.get(keyId);
+    if (!key) continue;
+    const cloudKey = getKeySlotCloudKey(storageKey, keyId);
+    await upsertCloudRowWithFreshVersion(cloudKey, normalizeKey(key));
+    syncedKeySnapshots.set(keyId, JSON.stringify(normalizeKey(key)));
+  }
+
+  await upsertCloudRowWithFreshVersion(storageKey, savedKeys);
+  clearSyncedDirtyKeySlots(storageKey, syncedKeySnapshots);
+  if (!getDirtyKeySlotIds(storageKey).size) {
+    dirtyCloudKeys.delete(storageKey);
+    failedCloudSyncKeys.delete(storageKey);
+  }
+  savePendingCloudKeys();
+  saveCloudRowVersions();
+  scheduleCloudSyncHeartbeat();
 }
 
 async function writeKeySlotsToCloud(storageKey, options = {}) {
@@ -2584,6 +2654,7 @@ function saveKeys() {
     setRuntimeStorageValue(storageKey, nextValue);
     markChangedKeySlots(storageKey, nextValue, previousValue);
     scheduleStorageKeySync(storageKey);
+    scheduleDirectKeyStorageFlush(storageKey);
   } catch (error) {
     alert("La sauvegarde a échoué. Une photo est probablement trop lourde : essayez une image plus légère.");
     throw error;
@@ -2602,6 +2673,7 @@ function saveKeysForRegistry(registry, nextKeys) {
     setRuntimeStorageValue(storageKey, nextValue);
     markChangedKeySlots(storageKey, nextValue, previousValue);
     scheduleStorageKeySync(storageKey);
+    scheduleDirectKeyStorageFlush(storageKey);
   } catch (error) {
     alert("La sauvegarde a échoué. Une photo est probablement trop lourde : essayez une image plus légère.");
     throw error;
