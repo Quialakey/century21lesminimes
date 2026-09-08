@@ -20,11 +20,11 @@ const defaultAddressReplacements = [
   { id: "passage", word: "Passage", replacement: "Pas." },
   { id: "esplanade", word: "Esplanade", replacement: "Esp." },
 ];
-const supabaseUrl = "https://ivwvrtnbzvsxrsmqkrff.supabase.co";
+const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2d3ZydG5ienZzeHJzbXFrcmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMjM3MjUsImV4cCI6MjA5ODc5OTcyNX0.-vxDlYB1L6t-NZnjEdrJXbpbQn1n-s3XCA--CEqcK-w";
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260908-8";
+const appBuildVersion = "20260908-9";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
