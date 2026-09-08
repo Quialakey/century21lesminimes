@@ -24,7 +24,7 @@ const supabaseUrl = "https://ivwvrtnbzvsxrsmqkrff.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2d3ZydG5ienZzeHJzbXFrcmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMjM3MjUsImV4cCI6MjA5ODc5OTcyNX0.-vxDlYB1L6t-NZnjEdrJXbpbQn1n-s3XCA--CEqcK-w";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260908-2";
+const appBuildVersion = "20260908-3";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -4630,8 +4630,7 @@ function renderGlobalHistoryItems(targetList = globalHistoryList, registryFilter
     const targetLabel = getActivityRegistryLabel(entry);
     const sourceFromDetails = String(entry.details || "").match(/Depuis\s+(Location|Transaction)\b/i)?.[1] || "";
     const sourceLabel = sourceFromDetails || (targetLabel === "Location" ? "Transaction" : "Location");
-    const owner = getHistoryTitleOwner(entry.title);
-    return [keyLabelEntry, `Transfert de ${sourceLabel} vers ${targetLabel}`, owner].filter(Boolean).join(" - ");
+    return [keyLabelEntry, `Transfert de ${sourceLabel} vers ${targetLabel}`].filter(Boolean).join(" - ");
   };
   const getGlobalHistoryTitleText = (entry) => {
     const actionLabel = getGlobalHistoryActionLabel(entry.action);
