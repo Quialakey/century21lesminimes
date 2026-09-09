@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260909-18";
+const appBuildVersion = "20260909-19";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -47,7 +47,7 @@ const pendingCloudKeysStorageKey = "cles-pending-cloud-keys-v1";
 const dirtyKeySlotsStorageKey = "cles-dirty-key-slots-v1";
 const pendingKeySlotWritesStorageKey = "cles-pending-key-slot-writes-v1";
 const syncMetadataVersionStorageKey = "cles-sync-metadata-version-v1";
-const syncMetadataVersion = "20260909-18-fbvsgvdrdblxvmzutpjk";
+const syncMetadataVersion = "20260909-19-fbvsgvdrdblxvmzutpjk";
 const cloudSyncHeartbeatStorageKey = "cles-cloud-sync-heartbeat-v1";
 const lastLocalEditStorageKey = "cles-last-local-edit-v1";
 const keySlotCloudSeparator = "::slot::";
@@ -388,6 +388,13 @@ function createRestSupabaseClient(projectUrl, anonKey) {
       this.params.set("on_conflict", "key");
       this.prefer = "resolution=merge-duplicates,return=representation";
       return this.execute();
+    }
+
+    update(value) {
+      this.method = "PATCH";
+      this.body = JSON.stringify(value);
+      this.prefer = "return=representation";
+      return this;
     }
 
     delete() {
@@ -1421,7 +1428,13 @@ function getCloudWritePayload(storageKey, value, updatedAt, expectedUpdatedAt = 
 }
 
 async function upsertCloudRow(storageKey, value, expectedUpdatedAt = null, updatedAt = new Date().toISOString()) {
-  return supabaseClient.from("app_state").upsert(getCloudWritePayload(storageKey, value, updatedAt, expectedUpdatedAt));
+  const payload = getCloudWritePayload(storageKey, value, updatedAt, expectedUpdatedAt);
+  if (!expectedUpdatedAt) return supabaseClient.from("app_state").upsert(payload);
+
+  const result = await supabaseClient.from("app_state").update(payload).eq("key", storageKey);
+  if (result.error || (Array.isArray(result.data) && result.data.length)) return result;
+
+  return supabaseClient.from("app_state").upsert(getCloudWritePayload(storageKey, value, updatedAt));
 }
 
 async function upsertCloudRowWithFreshVersion(storageKey, value) {
@@ -2433,7 +2446,7 @@ async function loadStorageFromCloud(options = {}) {
       return;
     }
 
-    const shouldForceSlotReload = force && !hasRecentLocalEdit();
+    const shouldForceSlotReload = force;
     const [{ data: baseMetadata, error: metadataError }, slotMetadata, recentSlotRows, forcedSlotRows] = await Promise.all([
       supabaseClient
         .from("app_state")
