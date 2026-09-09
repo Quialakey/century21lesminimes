@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260909-22";
+const appBuildVersion = "20260909-23";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -484,6 +484,7 @@ const keySetOptions = [
 ];
 
 const accessLock = document.querySelector("#accessLock");
+const cloudSleepOverlay = document.querySelector("#cloudSleepOverlay");
 const accessForm = document.querySelector("#accessForm");
 const accessAgencyTitle = document.querySelector("#accessAgencyTitle");
 const accessCodeInput = document.querySelector("#accessCodeInput");
@@ -763,6 +764,8 @@ function clearScheduledCloudWorkForSleep() {
 function enterCloudSleep() {
   if (isCloudSleeping) return;
   isCloudSleeping = true;
+  document.body.classList.add("is-cloud-sleeping");
+  if (cloudSleepOverlay) cloudSleepOverlay.hidden = false;
   clearTimeout(cloudInactivityTimer);
   cloudInactivityTimer = null;
   clearScheduledCloudWorkForSleep();
@@ -777,6 +780,8 @@ function scheduleCloudSleep() {
 function resumeCloudSyncFromInactivity() {
   const wasSleeping = isCloudSleeping;
   isCloudSleeping = false;
+  document.body.classList.remove("is-cloud-sleeping");
+  if (cloudSleepOverlay) cloudSleepOverlay.hidden = true;
   scheduleCloudSleep();
   if (!wasSleeping || !hasCompletedInitialCloudLoad) return false;
 
@@ -792,7 +797,17 @@ function startCloudInactivityTracking() {
   if (hasStartedCloudInactivityTracking) return;
   hasStartedCloudInactivityTracking = true;
   ["pointerdown", "keydown", "touchstart", "wheel"].forEach((eventName) => {
-    document.addEventListener(eventName, resumeCloudSyncFromInactivity, { capture: true, passive: true });
+    document.addEventListener(
+      eventName,
+      (event) => {
+        const isOverlayPointerEvent =
+          isCloudSleeping &&
+          cloudSleepOverlay?.contains(event.target) &&
+          (event.type === "pointerdown" || event.type === "touchstart");
+        if (!isOverlayPointerEvent) resumeCloudSyncFromInactivity();
+      },
+      { capture: true, passive: true },
+    );
   });
   scheduleCloudSleep();
 }
@@ -8595,6 +8610,12 @@ keySetPhotoList.addEventListener("change", (event) => {
     })
     .finally(finishPhotoImport);
   input.value = "";
+});
+
+cloudSleepOverlay?.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  resumeCloudSyncFromInactivity();
 });
 
 async function initializeApp() {

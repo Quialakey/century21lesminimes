@@ -19,9 +19,12 @@
     <link rel="shortcut icon" type="image/png" href="quialakey-icon-20260908-1.png" />
     <link rel="apple-touch-icon" sizes="838x838" href="quialakey-icon-20260908-1.png" />
     <link rel="manifest" href="manifest.webmanifest?v=20260908-17" />
-    <link rel="stylesheet" href="styles.css?v=20260908-17" />
+    <link rel="stylesheet" href="styles.css?v=20260909-23" />
   </head>
   <body class="is-access-locked">
+    <button id="cloudSleepOverlay" class="cloud-sleep-overlay" type="button" aria-label="Réactiver le tableau" hidden>
+      <span>Tableau en veille</span>
+    </button>
     <div id="accessLock" class="access-lock" role="dialog" aria-modal="true" aria-labelledby="accessAgencyTitle">
       <section class="access-card">
         <img class="access-logo" src="quialakey-logo-banniere-20260907-2.jpg" alt="Quialakey" />
@@ -528,7 +531,7 @@
 
     <script>
       (() => {
-        const fallbackVersion = "20260909-22";
+        const fallbackVersion = "20260909-23";
         const loadApp = (version) => {
           const script = document.createElement("script");
           script.src = `app.js?v=${encodeURIComponent(version || fallbackVersion)}&t=${Date.now()}`;
