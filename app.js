@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260908-17";
+const appBuildVersion = "20260909-18";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -45,8 +45,9 @@ const photoOptimizationStorageKey = "cles-photo-optimization-560-v2";
 const cloudVersionsStorageKey = "cles-cloud-row-versions-v1";
 const pendingCloudKeysStorageKey = "cles-pending-cloud-keys-v1";
 const dirtyKeySlotsStorageKey = "cles-dirty-key-slots-v1";
+const pendingKeySlotWritesStorageKey = "cles-pending-key-slot-writes-v1";
 const syncMetadataVersionStorageKey = "cles-sync-metadata-version-v1";
-const syncMetadataVersion = "20260908-17-fbvsgvdrdblxvmzutpjk";
+const syncMetadataVersion = "20260909-18-fbvsgvdrdblxvmzutpjk";
 const cloudSyncHeartbeatStorageKey = "cles-cloud-sync-heartbeat-v1";
 const lastLocalEditStorageKey = "cles-last-local-edit-v1";
 const keySlotCloudSeparator = "::slot::";
@@ -60,6 +61,8 @@ const mobileCloudPollIntervalMs = 5000;
 const cloudInteractionRefreshThrottleMs = 5000;
 const cloudWakeRefreshDelays = [0, 2500];
 const cloudWriteDebounceMs = 300;
+const keySlotWriteMaxAttempts = 8;
+const keySlotWriteRetryBaseDelayMs = 90;
 const recentSlotReplayMs = 30000;
 const pendingLocalEditGraceMs = 12 * 1000;
 const recentKeySlotMemoryMs = 12 * 1000;
@@ -636,6 +639,7 @@ let failedCloudSyncKeys = new Set();
 let cloudSyncTimers = new Map();
 let dirtyCloudKeys = loadPendingCloudKeys();
 let dirtyKeySlots = loadDirtyKeySlots();
+let pendingKeySlotWrites = loadPendingKeySlotWrites();
 let cloudRowVersions = loadCloudRowVersions();
 let activeKeyInfoDraft = null;
 let pendingNewKeyDraft = null;
@@ -1297,6 +1301,17 @@ function saveKeySlotCloudRow(row, options = {}) {
   const keyId = getKeyIdFromSlotCloudKey(row?.key);
   if (!storageKey || !keyId) return;
 
+  const pendingWrite = getPendingKeySlotWrite(row.key);
+  if (pendingWrite) {
+    if (cloudRowMatchesPendingKeySlotWrite(row, pendingWrite)) confirmPendingKeySlotWrite(row.key, row);
+    else {
+      dirtyCloudKeys.add(storageKey);
+      failedCloudSyncKeys.add(storageKey);
+      savePendingCloudKeys();
+      return;
+    }
+  }
+
   const incomingKey = normalizeCloudSlotKey(row);
   const savedKeys = parseStoredArray(storageKey, makeInitialKeys()).map(normalizeKey);
   const hasSavedSlot = savedKeys.some((key) => key.id === keyId);
@@ -1344,9 +1359,16 @@ function applyInitialCloudKeyStorageState(legacyKeyRows, slotRows, pendingStartu
       const slotCloudKey = getKeySlotCloudKey(storageKey, emptySlot.id);
       const currentKey = currentKeysById.get(emptySlot.id);
       if (slotRow) {
+        const pendingWrite = getPendingKeySlotWrite(slotCloudKey);
+        if (pendingWrite) {
+          if (cloudRowMatchesPendingKeySlotWrite(slotRow, pendingWrite)) confirmPendingKeySlotWrite(slotCloudKey, slotRow);
+          else return currentKey || normalizeKey(pendingWrite.value);
+        }
         if (keepRecentLocalSlots && hasPendingCloudRowChange(slotCloudKey) && currentKey) return currentKey;
         return normalizeCloudSlotKey(slotRow);
       }
+      const pendingWrite = getPendingKeySlotWrite(slotCloudKey);
+      if (pendingWrite) return currentKey || normalizeKey(pendingWrite.value);
       if (keepRecentLocalSlots && hasPendingCloudRowChange(slotCloudKey) && currentKey) return currentKey;
       const legacyKey = legacyKeysById.get(emptySlot.id);
       return legacyKey ? normalizeKey({ ...legacyKey, id: emptySlot.id }) : emptySlot;
@@ -1428,6 +1450,60 @@ async function upsertCloudRowWithFreshVersion(storageKey, value) {
   return updatedAt;
 }
 
+async function writeConfirmedKeySlotToCloud(storageKey, keyId, initialValue) {
+  const cloudKey = getKeySlotCloudKey(storageKey, keyId);
+  let intendedValue = normalizeKey({ ...initialValue, id: keyId });
+  rememberPendingKeySlotWrite(storageKey, keyId, intendedValue);
+
+  for (let attempt = 0; attempt < keySlotWriteMaxAttempts; attempt += 1) {
+    const { data: remoteRow, error: readError } = await supabaseClient
+      .from("app_state")
+      .select("key,value,updated_at")
+      .eq("key", cloudKey)
+      .maybeSingle();
+    if (readError) throw readError;
+
+    if (remoteRow && cloudRowMatchesPendingKeySlotWrite(remoteRow)) {
+      confirmPendingKeySlotWrite(cloudKey, remoteRow);
+      return normalizeCloudSlotKey(remoteRow);
+    }
+
+    if (remoteRow?.value) {
+      intendedValue = mergeKeyRecord(intendedValue, parseCloudObjectValue(remoteRow.value));
+      rememberPendingKeySlotWrite(storageKey, keyId, intendedValue);
+    }
+
+    const updatedAt = new Date().toISOString();
+    const { error: writeError } = await upsertCloudRow(cloudKey, intendedValue, remoteRow?.updated_at || null, updatedAt);
+    if (writeError) {
+      if (isStaleCloudWriteError(writeError) && attempt + 1 < keySlotWriteMaxAttempts) {
+        await waitForKeySlotRetry(attempt);
+        continue;
+      }
+      throw writeError;
+    }
+
+    const { data: confirmedRow, error: confirmationError } = await supabaseClient
+      .from("app_state")
+      .select("key,value,updated_at")
+      .eq("key", cloudKey)
+      .maybeSingle();
+    if (confirmationError) throw confirmationError;
+    if (confirmedRow && cloudRowMatchesPendingKeySlotWrite(confirmedRow)) {
+      confirmPendingKeySlotWrite(cloudKey, confirmedRow);
+      return normalizeCloudSlotKey(confirmedRow);
+    }
+
+    if (confirmedRow?.value) {
+      intendedValue = mergeKeyRecord(intendedValue, parseCloudObjectValue(confirmedRow.value));
+      rememberPendingKeySlotWrite(storageKey, keyId, intendedValue);
+    }
+    if (attempt + 1 < keySlotWriteMaxAttempts) await waitForKeySlotRetry(attempt);
+  }
+
+  throw new Error(`La case ${keyId} n'a pas été confirmée par Supabase.`);
+}
+
 function loadPendingCloudKeys() {
   try {
     const saved = JSON.parse(getRuntimeStorageValue(pendingCloudKeysStorageKey) || "[]");
@@ -1464,16 +1540,98 @@ function saveDirtyKeySlots() {
   );
 }
 
+function loadPendingKeySlotWrites() {
+  try {
+    const saved = JSON.parse(getRuntimeStorageValue(pendingKeySlotWritesStorageKey) || "{}");
+    return new Map(
+      Object.entries(saved && typeof saved === "object" ? saved : {}).filter(([, entry]) => entry?.storageKey && entry?.keyId && entry?.value),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+function savePendingKeySlotWrites() {
+  setRuntimeStorageValue(pendingKeySlotWritesStorageKey, JSON.stringify(Object.fromEntries(pendingKeySlotWrites)));
+}
+
+function getComparableKeySlotValue(value) {
+  return JSON.stringify(normalizeKey(value));
+}
+
+function getPendingKeySlotWrite(cloudKey) {
+  return pendingKeySlotWrites.get(cloudKey) || null;
+}
+
+function rememberPendingKeySlotWrite(storageKey, keyId, value) {
+  if (!storageKey || !keyId || !value) return;
+  const cloudKey = getKeySlotCloudKey(storageKey, keyId);
+  const normalizedValue = normalizeKey({ ...value, id: keyId });
+  pendingKeySlotWrites.set(cloudKey, {
+    storageKey,
+    keyId,
+    value: normalizedValue,
+    comparableValue: getComparableKeySlotValue(normalizedValue),
+    savedAt: Date.now(),
+  });
+  savePendingKeySlotWrites();
+}
+
+function rememberDirtyKeySlotSnapshots(storageKey) {
+  if (!isKeysStorageKey(storageKey)) return;
+  const keyById = new Map(parseStoredArray(storageKey, makeInitialKeys()).map((key) => [key.id, normalizeKey(key)]));
+  getDirtyKeySlotIds(storageKey).forEach((keyId) => {
+    const key = keyById.get(keyId);
+    if (key) rememberPendingKeySlotWrite(storageKey, keyId, key);
+  });
+}
+
+function cloudRowMatchesPendingKeySlotWrite(row, pendingWrite = getPendingKeySlotWrite(row?.key)) {
+  if (!pendingWrite || !row?.value) return false;
+  return getComparableKeySlotValue(normalizeCloudSlotKey(row)) === pendingWrite.comparableValue;
+}
+
+function clearDirtyKeySlot(storageKey, keyId) {
+  const savedKeyIds = new Set(dirtyKeySlots.get(storageKey) || []);
+  if (!savedKeyIds.delete(keyId)) return;
+  if (savedKeyIds.size) dirtyKeySlots.set(storageKey, savedKeyIds);
+  else dirtyKeySlots.delete(storageKey);
+  saveDirtyKeySlots();
+}
+
+function confirmPendingKeySlotWrite(cloudKey, row) {
+  const pendingWrite = getPendingKeySlotWrite(cloudKey);
+  if (!pendingWrite || !cloudRowMatchesPendingKeySlotWrite(row, pendingWrite)) return false;
+  pendingKeySlotWrites.delete(cloudKey);
+  clearDirtyKeySlot(pendingWrite.storageKey, pendingWrite.keyId);
+  if (!getDirtyKeySlotIds(pendingWrite.storageKey).size) {
+    dirtyCloudKeys.delete(pendingWrite.storageKey);
+    failedCloudSyncKeys.delete(pendingWrite.storageKey);
+  }
+  cloudRowVersions.set(cloudKey, row.updated_at || "");
+  savePendingKeySlotWrites();
+  savePendingCloudKeys();
+  saveCloudRowVersions();
+  return true;
+}
+
+function waitForKeySlotRetry(attempt) {
+  const jitter = Math.floor(Math.random() * 80);
+  return new Promise((resolve) => setTimeout(resolve, keySlotWriteRetryBaseDelayMs * (attempt + 1) + jitter));
+}
+
 function resetLegacySyncMetadataIfNeeded() {
   if (getRuntimeStorageValue(syncMetadataVersionStorageKey) === syncMetadataVersion) return;
   dirtyCloudKeys = new Set();
   failedCloudSyncKeys = new Set();
   dirtyKeySlots = new Map();
+  pendingKeySlotWrites = new Map();
   cloudRowVersions = new Map();
   cloudSyncTimers.forEach((timer) => clearTimeout(timer));
   cloudSyncTimers = new Map();
   removeRuntimeStorageValue(pendingCloudKeysStorageKey);
   removeRuntimeStorageValue(dirtyKeySlotsStorageKey);
+  removeRuntimeStorageValue(pendingKeySlotWritesStorageKey);
   removeRuntimeStorageValue(cloudVersionsStorageKey);
   setRuntimeStorageValue(syncMetadataVersionStorageKey, syncMetadataVersion);
 }
@@ -1488,17 +1646,26 @@ function markDirtyKeySlot(keyId, storageKey = getRegistryConfig().keysStorageKey
 
 function getDirtyKeySlotIds(storageKey) {
   const savedKeyIds = new Set(dirtyKeySlots.get(storageKey) || []);
+  pendingKeySlotWrites.forEach((entry) => {
+    if (entry.storageKey === storageKey && entry.keyId) savedKeyIds.add(entry.keyId);
+  });
   if (storageKey === getRegistryConfig().keysStorageKey && activeKeyInfoDraft?.keyId) {
     savedKeyIds.add(activeKeyInfoDraft.keyId);
   }
-  if (storageKey === getRegistryConfig().keysStorageKey && selectedId && !selectedArchiveRecord) {
-    savedKeyIds.add(selectedId);
-  }
-  recentlyForcedKeySlots.forEach((_, memoryKey) => {
+  const now = Date.now();
+  recentlyForcedKeySlots.forEach((entry, memoryKey) => {
+    if (now - entry.updatedAt > recentKeySlotMemoryMs) {
+      recentlyForcedKeySlots.delete(memoryKey);
+      return;
+    }
     const parts = getRecentKeySlotMemoryParts(memoryKey);
     if (parts.storageKey === storageKey) savedKeyIds.add(parts.keyId);
   });
-  recentlyClearedKeySlots.forEach((_, memoryKey) => {
+  recentlyClearedKeySlots.forEach((clearedAt, memoryKey) => {
+    if (now - clearedAt > recentKeySlotMemoryMs) {
+      recentlyClearedKeySlots.delete(memoryKey);
+      return;
+    }
     const parts = getRecentKeySlotMemoryParts(memoryKey);
     if (parts.storageKey === storageKey) savedKeyIds.add(parts.keyId);
   });
@@ -1719,6 +1886,7 @@ async function touchCloudSyncHeartbeat() {
 function scheduleStorageKeySync(storageKey, delay = cloudWriteDebounceMs) {
   if (!supabaseClient) return;
   dirtyCloudKeys.add(storageKey);
+  if (isKeysStorageKey(storageKey)) rememberDirtyKeySlotSnapshots(storageKey);
   savePendingCloudKeys();
   if (!hasCompletedInitialCloudLoad) return;
   clearTimeout(cloudSyncTimers.get(storageKey));
@@ -1733,12 +1901,16 @@ function scheduleStorageKeySync(storageKey, delay = cloudWriteDebounceMs) {
 
 function scheduleDirectKeyStorageFlush(storageKey, delay = 250) {
   if (!supabaseClient || !isKeysStorageKey(storageKey)) return;
+  rememberDirtyKeySlotSnapshots(storageKey);
+  clearTimeout(cloudSyncTimers.get(storageKey));
+  cloudSyncTimers.delete(storageKey);
   clearTimeout(directCloudFlushTimers.get(storageKey));
   directCloudFlushTimers.set(
     storageKey,
     setTimeout(() => {
       directCloudFlushTimers.delete(storageKey);
-      flushKeyStorageDirectlyToCloud(storageKey).catch((error) => {
+      pendingCloudSync = pendingCloudSync.catch(() => {}).then(() => flushKeyStorageDirectlyToCloud(storageKey));
+      pendingCloudSync.catch((error) => {
         dirtyCloudKeys.add(storageKey);
         failedCloudSyncKeys.add(storageKey);
         savePendingCloudKeys();
@@ -1749,7 +1921,7 @@ function scheduleDirectKeyStorageFlush(storageKey, delay = 250) {
 }
 
 async function flushKeyStorageDirectlyToCloud(storageKey) {
-  const savedKeys = parseStoredArray(storageKey, makeInitialKeys()).map(normalizeKey);
+  let savedKeys = parseStoredArray(storageKey, makeInitialKeys()).map(normalizeKey);
   const keyById = new Map(savedKeys.map((key) => [key.id, key]));
   const keyIds = [...getDirtyKeySlotIds(storageKey)];
   if (!keyIds.length) return;
@@ -1758,12 +1930,13 @@ async function flushKeyStorageDirectlyToCloud(storageKey) {
   for (const keyId of keyIds) {
     const key = keyById.get(keyId);
     if (!key) continue;
-    const cloudKey = getKeySlotCloudKey(storageKey, keyId);
-    await upsertCloudRowWithFreshVersion(cloudKey, normalizeKey(key));
-    syncedKeySnapshots.set(keyId, JSON.stringify(normalizeKey(key)));
+    const confirmedKey = await writeConfirmedKeySlotToCloud(storageKey, keyId, key);
+    keyById.set(keyId, confirmedKey);
+    savedKeys = savedKeys.map((savedKey) => (savedKey.id === keyId ? confirmedKey : savedKey));
+    setRuntimeStorageValue(storageKey, JSON.stringify(savedKeys));
+    syncedKeySnapshots.set(keyId, JSON.stringify(confirmedKey));
   }
 
-  await upsertCloudRowWithFreshVersion(storageKey, savedKeys);
   clearSyncedDirtyKeySlots(storageKey, syncedKeySnapshots);
   if (!getDirtyKeySlotIds(storageKey).size) {
     dirtyCloudKeys.delete(storageKey);
@@ -1784,38 +1957,18 @@ async function writeKeySlotsToCloud(storageKey, options = {}) {
   for (const keyId of keyIds) {
     let key = keyById.get(keyId);
     if (!key) continue;
-    const cloudKey = getKeySlotCloudKey(storageKey, keyId);
-    let updatedAt = new Date().toISOString();
-    let expectedUpdatedAt = cloudRowVersions.get(cloudKey) || null;
-    let { error } = await upsertCloudRow(cloudKey, normalizeKey(key), expectedUpdatedAt, updatedAt);
-
-    if (error && isStaleCloudWriteError(error)) {
-      const { data: remoteRow, error: remoteError } = await supabaseClient
-        .from("app_state")
-        .select("key,value,updated_at")
-        .eq("key", cloudKey)
-        .maybeSingle();
-      if (remoteError) throw remoteError;
-
-      expectedUpdatedAt = remoteRow?.updated_at || null;
-      if (remoteRow?.value) {
-        key = mergeKeyRecord(key, parseCloudObjectValue(remoteRow.value));
-        keyById.set(keyId, key);
-        savedKeys = savedKeys.map((savedKey) => (savedKey.id === keyId ? key : savedKey));
-        setRuntimeStorageValue(storageKey, JSON.stringify(savedKeys));
-      }
-      updatedAt = new Date().toISOString();
-      ({ error } = await upsertCloudRow(cloudKey, normalizeKey(key), expectedUpdatedAt, updatedAt));
-    }
-
-    if (error) {
+    try {
+      key = await writeConfirmedKeySlotToCloud(storageKey, keyId, key);
+    } catch (error) {
       dirtyCloudKeys.add(storageKey);
       failedCloudSyncKeys.add(storageKey);
       savePendingCloudKeys();
-      console.warn("Supabase key slot sync failed", cloudKey, error.message);
+      console.warn("Supabase key slot sync failed", getKeySlotCloudKey(storageKey, keyId), error.message);
       throw error;
     }
-    cloudRowVersions.set(cloudKey, updatedAt);
+    keyById.set(keyId, key);
+    savedKeys = savedKeys.map((savedKey) => (savedKey.id === keyId ? key : savedKey));
+    setRuntimeStorageValue(storageKey, JSON.stringify(savedKeys));
     syncedKeySnapshots.set(keyId, JSON.stringify(normalizeKey(key)));
   }
 
