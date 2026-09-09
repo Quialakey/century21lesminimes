@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260909-19";
+const appBuildVersion = "20260909-20";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -47,7 +47,7 @@ const pendingCloudKeysStorageKey = "cles-pending-cloud-keys-v1";
 const dirtyKeySlotsStorageKey = "cles-dirty-key-slots-v1";
 const pendingKeySlotWritesStorageKey = "cles-pending-key-slot-writes-v1";
 const syncMetadataVersionStorageKey = "cles-sync-metadata-version-v1";
-const syncMetadataVersion = "20260909-19-fbvsgvdrdblxvmzutpjk";
+const syncMetadataVersion = "20260909-20-fbvsgvdrdblxvmzutpjk";
 const cloudSyncHeartbeatStorageKey = "cles-cloud-sync-heartbeat-v1";
 const lastLocalEditStorageKey = "cles-last-local-edit-v1";
 const keySlotCloudSeparator = "::slot::";
@@ -1634,18 +1634,30 @@ function waitForKeySlotRetry(attempt) {
 }
 
 function resetLegacySyncMetadataIfNeeded() {
-  if (getRuntimeStorageValue(syncMetadataVersionStorageKey) === syncMetadataVersion) return;
-  dirtyCloudKeys = new Set();
-  failedCloudSyncKeys = new Set();
-  dirtyKeySlots = new Map();
-  pendingKeySlotWrites = new Map();
+  const previousVersion = getRuntimeStorageValue(syncMetadataVersionStorageKey) || "";
+  if (previousVersion === syncMetadataVersion) return;
+  const isSameSupabaseProject = previousVersion.endsWith("-fbvsgvdrdblxvmzutpjk");
+
   cloudRowVersions = new Map();
   cloudSyncTimers.forEach((timer) => clearTimeout(timer));
   cloudSyncTimers = new Map();
-  removeRuntimeStorageValue(pendingCloudKeysStorageKey);
-  removeRuntimeStorageValue(dirtyKeySlotsStorageKey);
-  removeRuntimeStorageValue(pendingKeySlotWritesStorageKey);
   removeRuntimeStorageValue(cloudVersionsStorageKey);
+
+  if (isSameSupabaseProject) {
+    dirtyCloudKeys.forEach((storageKey) => failedCloudSyncKeys.add(storageKey));
+    savePendingCloudKeys();
+    saveDirtyKeySlots();
+    savePendingKeySlotWrites();
+  } else {
+    dirtyCloudKeys = new Set();
+    failedCloudSyncKeys = new Set();
+    dirtyKeySlots = new Map();
+    pendingKeySlotWrites = new Map();
+    removeRuntimeStorageValue(pendingCloudKeysStorageKey);
+    removeRuntimeStorageValue(dirtyKeySlotsStorageKey);
+    removeRuntimeStorageValue(pendingKeySlotWritesStorageKey);
+  }
+
   setRuntimeStorageValue(syncMetadataVersionStorageKey, syncMetadataVersion);
 }
 
