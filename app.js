@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260909-23";
+const appBuildVersion = "20260909-24";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -64,7 +64,6 @@ const cloudInactivityTimeoutMs = 5 * 60 * 1000;
 const cloudWriteDebounceMs = 300;
 const keySlotWriteMaxAttempts = 8;
 const keySlotWriteRetryBaseDelayMs = 90;
-const recentSlotReplayMs = 30000;
 const pendingLocalEditGraceMs = 12 * 1000;
 const recentKeySlotMemoryMs = 12 * 1000;
 const runtimeStorageFallback = new Map();
@@ -1184,26 +1183,11 @@ function normalizeCloudSlotKey(row) {
   return normalizeKey({ ...parseCloudObjectValue(row?.value), id: keyId });
 }
 
-function localKeySlotMatchesCloudRow(row) {
-  const storageKey = getKeyStorageKeyFromSlotCloudKey(row?.key);
-  const keyId = getKeyIdFromSlotCloudKey(row?.key);
-  if (!storageKey || !keyId) return true;
-  const savedKey = parseStoredArray(storageKey, makeInitialKeys()).find((key) => key.id === keyId);
-  if (!savedKey) return false;
-  return JSON.stringify(normalizeKey(savedKey)) === JSON.stringify(normalizeCloudSlotKey(row));
-}
-
 function rememberSlotCloudSeenAt(row) {
   const nextTime = Date.parse(row?.updated_at || "");
   if (Number.isNaN(nextTime)) return;
   const currentTime = Date.parse(lastSlotCloudSeenAt || "");
   if (!lastSlotCloudSeenAt || Number.isNaN(currentTime) || nextTime > currentTime) lastSlotCloudSeenAt = row.updated_at;
-}
-
-function getRecentSlotReplaySince() {
-  const seenAt = Date.parse(lastSlotCloudSeenAt || "");
-  if (Number.isNaN(seenAt)) return "";
-  return new Date(Math.max(0, seenAt - recentSlotReplayMs)).toISOString();
 }
 
 function getKeySlotStorageRows() {
@@ -2267,26 +2251,6 @@ async function loadKeySlotCloudRows(selectColumns = "key,value,updated_at") {
   });
 }
 
-async function loadRecentKeySlotCloudRows() {
-  if (!supabaseClient) return [];
-  const since = getRecentSlotReplaySince();
-  const results = await Promise.all(
-    getKeySlotStorageRows().map(({ prefix }) => {
-      let query = supabaseClient
-        .from("app_state")
-        .select("key,value,updated_at")
-        .like("key", `${prefix}%`);
-      if (since) query = query.gt("updated_at", since);
-      return query;
-    }),
-  );
-
-  return results.flatMap(({ data, error }) => {
-    if (error) throw error;
-    return Array.isArray(data) ? data : [];
-  });
-}
-
 async function loadCloudRowsByKeys(keys) {
   if (!supabaseClient || !Array.isArray(keys) || !keys.length) return [];
   const uniqueKeys = [...new Set(keys)];
@@ -2551,57 +2515,54 @@ async function loadStorageFromCloud(options = {}) {
       return;
     }
 
-    const shouldForceSlotReload = force;
-    const [{ data: baseMetadata, error: metadataError }, slotMetadata, recentSlotRows, forcedSlotRows] = await Promise.all([
+    const [{ data: baseMetadata, error: metadataError }, slotMetadata] = await Promise.all([
       supabaseClient
         .from("app_state")
         .select("key,updated_at")
         .in("key", getCloudBaseStorageKeys()),
       loadKeySlotCloudRows("key,updated_at"),
-      loadRecentKeySlotCloudRows(),
-      shouldForceSlotReload ? loadKeySlotCloudRows() : Promise.resolve([]),
     ]);
     if (metadataError) throw metadataError;
     const metadata = [...(Array.isArray(baseMetadata) ? baseMetadata : []), ...slotMetadata];
     if (!Array.isArray(metadata)) return;
-    const unappliedRecentSlotRows = recentSlotRows.filter((row) => !hasPendingCloudRowChange(row.key) && !localKeySlotMatchesCloudRow(row));
-    const heartbeatRow = metadata.find((row) => row.key === cloudSyncHeartbeatStorageKey);
-    const heartbeatChanged = heartbeatRow && cloudRowVersions.get(cloudSyncHeartbeatStorageKey) !== (heartbeatRow.updated_at || "");
 
     const remoteVersions = new Map(metadata.map((row) => [row.key, row.updated_at || ""]));
-    let changedKeys = metadata
+    const changedKeys = metadata
       .filter((row) => {
+        if (row.key === cloudSyncHeartbeatStorageKey || isKeysStorageKey(row.key)) return false;
         const versionChanged = cloudRowVersions.get(row.key) !== (row.updated_at || "");
         const missingLocalBaseRow = !isKeySlotCloudKey(row.key) && getRuntimeStorageValue(row.key) === null;
         return versionChanged || missingLocalBaseRow;
       })
       .map((row) => row.key);
-    if (heartbeatChanged) {
-      changedKeys = [...new Set([...changedKeys, ...metadata.filter((row) => row.key !== cloudSyncHeartbeatStorageKey).map((row) => row.key)])];
-    }
-    const missingRemoteKeys = [...cloudRowVersions.keys()].filter((key) => !remoteVersions.has(key));
+    const missingRemoteKeys = [...cloudRowVersions.keys()].filter(
+      (key) => (getCloudBaseStorageKeys().includes(key) || isKeySlotCloudKey(key)) && !remoteVersions.has(key),
+    );
     const locallyDirtyMissingKeys = missingRemoteKeys.filter(hasPendingCloudRowChange);
     if (locallyDirtyMissingKeys.length) {
       await Promise.all([...new Set(locallyDirtyMissingKeys.map(getSyncStorageKeyForCloudKey))].map((key) => syncStorageKeyToCloud(key)));
     }
     const deletedKeys = missingRemoteKeys.filter((key) => !locallyDirtyMissingKeys.includes(key));
-    if (!changedKeys.length && !deletedKeys.length && !unappliedRecentSlotRows.length && !forcedSlotRows.length) return;
+    if (!changedKeys.length && !deletedKeys.length) {
+      let didUpdateMetadataVersion = false;
+      metadata.forEach((row) => {
+        const updatedAt = row.updated_at || "";
+        if (cloudRowVersions.get(row.key) === updatedAt) return;
+        cloudRowVersions.set(row.key, updatedAt);
+        didUpdateMetadataVersion = true;
+      });
+      if (didUpdateMetadataVersion) saveCloudRowVersions();
+      return;
+    }
 
     const locallyDirtyChangedKeys = changedKeys.filter(hasPendingCloudRowChange);
     if (locallyDirtyChangedKeys.length) {
       await Promise.all([...new Set(locallyDirtyChangedKeys.map(getSyncStorageKeyForCloudKey))].map((key) => syncStorageKeyToCloud(key)));
     }
     const cloudOnlyChangedKeys = changedKeys.filter((key) => !locallyDirtyChangedKeys.includes(key));
-    if (!cloudOnlyChangedKeys.length && !deletedKeys.length && !unappliedRecentSlotRows.length && !forcedSlotRows.length) return;
+    if (!cloudOnlyChangedKeys.length && !deletedKeys.length) return;
 
-    const changedRowsByKey = new Map((await loadCloudRowsByKeys(cloudOnlyChangedKeys)).map((row) => [row.key, row]));
-    unappliedRecentSlotRows.forEach((row) => changedRowsByKey.set(row.key, row));
-    const changedRows = [...changedRowsByKey.values()];
-    const changedKeyStorageKeys = new Set(changedRows.filter((row) => isKeysStorageKey(row.key)).map((row) => row.key));
-    let refreshedSlotRows = [];
-    if (changedKeyStorageKeys.size) {
-      refreshedSlotRows = await loadKeySlotCloudRows();
-    }
+    const changedRows = await loadCloudRowsByKeys(cloudOnlyChangedKeys);
 
     isApplyingCloudState = true;
     changedRows.forEach((row) => {
@@ -2609,17 +2570,10 @@ async function loadStorageFromCloud(options = {}) {
       if (isKeySlotCloudKey(row.key)) {
         saveKeySlotCloudRow(row);
         rememberSlotCloudSeenAt(row);
-      } else if (isKeysStorageKey(row.key)) {
-        // Le miroir complet peut être en retard; les lignes par case restent la source fiable après le chargement initial.
-        return;
       } else {
         saveStorageValue(row.key, stringifyCloudValue(row.value));
       }
     });
-    const slotRowsToApply = forcedSlotRows.length ? forcedSlotRows : refreshedSlotRows;
-    if (slotRowsToApply.length) {
-      applyInitialCloudKeyStorageState([], slotRowsToApply, new Set());
-    }
     deletedKeys.forEach((key) => {
       if (!isKeySlotCloudKey(key) && !isKeysStorageKey(key)) removeRuntimeStorageValue(key);
     });
@@ -2627,6 +2581,7 @@ async function loadStorageFromCloud(options = {}) {
     metadata.forEach((row) => {
       if (!locallyDirtyChangedKeys.includes(row.key)) cloudRowVersions.set(row.key, row.updated_at || "");
     });
+    changedRows.forEach((row) => cloudRowVersions.set(row.key, row.updated_at || ""));
     deletedKeys.forEach((key) => cloudRowVersions.delete(key));
     saveCloudRowVersions();
     refreshDataFromStorage({ keepSelection: true });
