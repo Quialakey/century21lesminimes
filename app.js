@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260909-20";
+const appBuildVersion = "20260909-21";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -47,7 +47,7 @@ const pendingCloudKeysStorageKey = "cles-pending-cloud-keys-v1";
 const dirtyKeySlotsStorageKey = "cles-dirty-key-slots-v1";
 const pendingKeySlotWritesStorageKey = "cles-pending-key-slot-writes-v1";
 const syncMetadataVersionStorageKey = "cles-sync-metadata-version-v1";
-const syncMetadataVersion = "20260909-20-fbvsgvdrdblxvmzutpjk";
+const syncMetadataVersion = "20260909-21-fbvsgvdrdblxvmzutpjk";
 const cloudSyncHeartbeatStorageKey = "cles-cloud-sync-heartbeat-v1";
 const lastLocalEditStorageKey = "cles-last-local-edit-v1";
 const keySlotCloudSeparator = "::slot::";
@@ -795,7 +795,6 @@ function requestAutomaticCloudRefresh(options = {}) {
   const elapsed = now - lastAutomaticCloudRefreshAt;
   const run = () => {
     lastAutomaticCloudRefreshAt = Date.now();
-    if (isKeyFormBeingEdited()) captureActiveKeyInfoDraft();
     retryFailedCloudSyncs().catch((error) => console.warn("Supabase retry failed", error.message));
     loadStorageFromCloud({ force });
   };
@@ -1210,7 +1209,7 @@ function mergeKeyCollections(preferredValue, fallbackValue, options = {}) {
 }
 
 function preserveActiveKeyInfoDraft(storageKey, value) {
-  if (!activeKeyInfoDraft || storageKey !== getRegistryConfig().keysStorageKey) return value;
+  if (!activeKeyInfoDraft || !hasPendingActiveKeyInfoDraft(storageKey)) return value;
   const keyInfo = typeof value === "string" ? parseStorageValue(value) : value;
   if (!Array.isArray(keyInfo)) return value;
   const nextValue = keyInfo.map((key) =>
@@ -1617,6 +1616,10 @@ function confirmPendingKeySlotWrite(cloudKey, row) {
   if (!pendingWrite || !cloudRowMatchesPendingKeySlotWrite(row, pendingWrite)) return false;
   pendingKeySlotWrites.delete(cloudKey);
   clearDirtyKeySlot(pendingWrite.storageKey, pendingWrite.keyId);
+  const activeDraftStorageKey = activeKeyInfoDraft?.storageKey || getRegistryConfig().keysStorageKey;
+  if (activeKeyInfoDraft?.keyId === pendingWrite.keyId && activeDraftStorageKey === pendingWrite.storageKey) {
+    activeKeyInfoDraft = null;
+  }
   if (!getDirtyKeySlotIds(pendingWrite.storageKey).size) {
     dirtyCloudKeys.delete(pendingWrite.storageKey);
     failedCloudSyncKeys.delete(pendingWrite.storageKey);
@@ -1644,6 +1647,15 @@ function resetLegacySyncMetadataIfNeeded() {
   removeRuntimeStorageValue(cloudVersionsStorageKey);
 
   if (isSameSupabaseProject) {
+    // Les anciennes files pouvaient contenir des fiches simplement restees ouvertes et bloquer les autres appareils.
+    getKeyStorageKeys().forEach((storageKey) => {
+      dirtyCloudKeys.delete(storageKey);
+      failedCloudSyncKeys.delete(storageKey);
+    });
+    dirtyKeySlots = new Map();
+    pendingKeySlotWrites = new Map();
+    removeRuntimeStorageValue(dirtyKeySlotsStorageKey);
+    removeRuntimeStorageValue(pendingKeySlotWritesStorageKey);
     dirtyCloudKeys.forEach((storageKey) => failedCloudSyncKeys.add(storageKey));
     savePendingCloudKeys();
     saveDirtyKeySlots();
@@ -1674,9 +1686,6 @@ function getDirtyKeySlotIds(storageKey) {
   pendingKeySlotWrites.forEach((entry) => {
     if (entry.storageKey === storageKey && entry.keyId) savedKeyIds.add(entry.keyId);
   });
-  if (storageKey === getRegistryConfig().keysStorageKey && activeKeyInfoDraft?.keyId) {
-    savedKeyIds.add(activeKeyInfoDraft.keyId);
-  }
   const now = Date.now();
   recentlyForcedKeySlots.forEach((entry, memoryKey) => {
     if (now - entry.updatedAt > recentKeySlotMemoryMs) {
@@ -3755,9 +3764,23 @@ function rememberActiveKeyInfoDraft(changes = getKeyInfoDraftChanges()) {
   if (!selectedId || selectedArchiveRecord) return;
   activeKeyInfoDraft = {
     keyId: selectedId,
+    storageKey: getRegistryConfig().keysStorageKey,
     changes,
     editedAt: Date.now(),
   };
+}
+
+function keyInfoDraftMatchesKey(changes, key) {
+  if (!key) return false;
+  return Object.entries(changes).every(([field, value]) => String(key[field] || "") === String(value || ""));
+}
+
+function hasPendingActiveKeyInfoDraft(storageKey = getRegistryConfig().keysStorageKey) {
+  if (!activeKeyInfoDraft) return false;
+  const draftStorageKey = activeKeyInfoDraft.storageKey || getRegistryConfig().keysStorageKey;
+  if (draftStorageKey !== storageKey) return false;
+  const cloudKey = getKeySlotCloudKey(storageKey, activeKeyInfoDraft.keyId);
+  return Boolean(getPendingKeySlotWrite(cloudKey) || dirtyKeySlots.get(storageKey)?.has(activeKeyInfoDraft.keyId));
 }
 
 function captureActiveKeyInfoDraft() {
@@ -3767,6 +3790,7 @@ function captureActiveKeyInfoDraft() {
     pendingNewKeyDraft = { ...pendingNewKeyDraft, ...changes };
     return;
   }
+  if (keyInfoDraftMatchesKey(changes, getSelectedKey())) return;
   rememberActiveKeyInfoDraft(changes);
   markDirtyKeySlot(selectedId);
   keys = keys.map((key) => (key.id === selectedId ? { ...key, ...changes } : key));
@@ -3784,12 +3808,11 @@ function restoreActiveKeyInfoDraftIfNeeded() {
   if (isPendingNewKeyDraft()) return;
   if (!activeKeyInfoDraft || !selectedId || selectedArchiveRecord) return;
   if (activeKeyInfoDraft.keyId !== selectedId) return;
-  if (Date.now() - activeKeyInfoDraft.editedAt > 30000) {
+  if (!hasPendingActiveKeyInfoDraft()) {
     activeKeyInfoDraft = null;
     return;
   }
   keys = keys.map((key) => (key.id === selectedId ? { ...key, ...activeKeyInfoDraft.changes } : key));
-  saveKeys();
 }
 
 function updateSelectedKeyInfoFromDraft() {
@@ -8517,7 +8540,7 @@ async function initializeApp() {
   migrateArchivedSlots();
   subscribeToCloudChanges();
   await migrateStoredPropertyAddresses();
-  await optimizeStoredPhotos();
+  setRuntimeStorageValue(photoOptimizationStorageKey, "done");
   await ensureMissedAutomaticBackupOnOpen();
   await ensureTodaysAutomaticBackupIfLate();
   scheduleAutomaticBackup();
