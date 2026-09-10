@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260910-1";
+const appBuildVersion = "20260910-2";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -413,8 +413,15 @@ function createRestSupabaseClient(projectUrl, anonKey) {
     }
 
     async execute() {
-      if (isCloudSleeping) {
-        return { data: null, error: { message: "Synchronisation Supabase en veille.", sleeping: true } };
+      if (isCloudSleeping || isAppInBackground()) {
+        return {
+          data: null,
+          error: {
+            message: isCloudSleeping ? "Synchronisation Supabase en veille." : "Synchronisation Supabase suspendue en arrière-plan.",
+            sleeping: isCloudSleeping,
+            background: isAppInBackground(),
+          },
+        };
       }
       const query = this.params.toString();
       const response = await fetch(`${restBaseUrl}/${this.table}${query ? `?${query}` : ""}`, {
@@ -732,6 +739,10 @@ function isMobileLikeDevice() {
   );
 }
 
+function isAppInBackground() {
+  return document.visibilityState === "hidden";
+}
+
 function isPhoneOrTabletDevice() {
   const userAgent = navigator.userAgent || "";
   const platform = navigator.platform || "";
@@ -759,6 +770,12 @@ function clearScheduledCloudWorkForSleep() {
   cloudSyncTimers = new Map();
   directCloudFlushTimers.forEach((timer) => clearTimeout(timer));
   directCloudFlushTimers = new Map();
+}
+
+function pauseCloudWorkWhileBackgrounded() {
+  getPendingCloudSyncKeys().forEach((storageKey) => failedCloudSyncKeys.add(storageKey));
+  clearScheduledCloudWorkForSleep();
+  savePendingCloudKeys();
 }
 
 function enterCloudSleep() {
@@ -872,7 +889,7 @@ function queueStandaloneCloudRefresh(delay = 0) {
 }
 
 function requestAutomaticCloudRefresh(options = {}) {
-  if (!supabaseClient || isCloudSleeping) return;
+  if (!supabaseClient || isCloudSleeping || isAppInBackground()) return;
   const force = options.force !== false;
   const now = Date.now();
   const elapsed = now - lastAutomaticCloudRefreshAt;
@@ -1505,7 +1522,7 @@ async function upsertCloudRow(storageKey, value, expectedUpdatedAt = null, updat
 }
 
 async function upsertCloudRowWithFreshVersion(storageKey, value) {
-  if (!supabaseClient || isCloudSleeping) return null;
+  if (!supabaseClient || isCloudSleeping || isAppInBackground()) return null;
   const { data: remoteRow, error: versionError } = await supabaseClient
     .from("app_state")
     .select("key,value,updated_at")
@@ -1936,7 +1953,7 @@ function finishSuccessfulCloudWrite(storageKey, sentValue, updatedAt) {
 }
 
 function scheduleCloudSyncHeartbeat(delay = 150) {
-  if (!supabaseClient || isCloudSleeping) return;
+  if (!supabaseClient || isCloudSleeping || isAppInBackground()) return;
   clearTimeout(cloudHeartbeatTimer);
   cloudHeartbeatTimer = setTimeout(() => {
     cloudHeartbeatTimer = null;
@@ -1945,7 +1962,7 @@ function scheduleCloudSyncHeartbeat(delay = 150) {
 }
 
 async function touchCloudSyncHeartbeat() {
-  if (!supabaseClient || isCloudSleeping) return;
+  if (!supabaseClient || isCloudSleeping || isAppInBackground()) return;
   const updatedAt = new Date().toISOString();
   const { data: remoteRow, error: versionError } = await supabaseClient
     .from("app_state")
@@ -1990,7 +2007,7 @@ function scheduleStorageKeySync(storageKey, delay = cloudWriteDebounceMs) {
   dirtyCloudKeys.add(storageKey);
   if (isKeysStorageKey(storageKey)) rememberDirtyKeySlotSnapshots(storageKey);
   savePendingCloudKeys();
-  if (!hasCompletedInitialCloudLoad || isCloudSleeping) return;
+  if (!hasCompletedInitialCloudLoad || isCloudSleeping || isAppInBackground()) return;
   clearTimeout(cloudSyncTimers.get(storageKey));
   cloudSyncTimers.set(
     storageKey,
@@ -2004,7 +2021,7 @@ function scheduleStorageKeySync(storageKey, delay = cloudWriteDebounceMs) {
 function scheduleDirectKeyStorageFlush(storageKey, delay = 250) {
   if (!supabaseClient || !isKeysStorageKey(storageKey)) return;
   rememberDirtyKeySlotSnapshots(storageKey);
-  if (isCloudSleeping) return;
+  if (isCloudSleeping || isAppInBackground()) return;
   clearTimeout(cloudSyncTimers.get(storageKey));
   cloudSyncTimers.delete(storageKey);
   clearTimeout(directCloudFlushTimers.get(storageKey));
@@ -2118,7 +2135,7 @@ async function writeFullKeyStorageMirrorToCloud(storageKey, savedKeys) {
 
 function syncStorageKeyToCloud(storageKey, options = {}) {
   if (!supabaseClient) return Promise.resolve();
-  if (isCloudSleeping) {
+  if (isCloudSleeping || isAppInBackground()) {
     dirtyCloudKeys.add(storageKey);
     if (isKeysStorageKey(storageKey)) rememberDirtyKeySlotSnapshots(storageKey);
     savePendingCloudKeys();
@@ -2232,7 +2249,7 @@ function syncStorageKeyToCloud(storageKey, options = {}) {
 }
 
 function retryFailedCloudSyncs() {
-  if (isCloudSleeping) return Promise.resolve();
+  if (isCloudSleeping || isAppInBackground()) return Promise.resolve();
   pruneStalePendingKeyStorageFlags();
   if (!failedCloudSyncKeys.size) return Promise.resolve();
   const keys = [...failedCloudSyncKeys].filter(hasPendingStorageKeyChange);
@@ -2295,7 +2312,7 @@ async function loadCloudRowsByKeys(keys) {
 
 async function writeStorageKeyToCloudNow(storageKey, options = {}) {
   if (!supabaseClient) return;
-  if (isCloudSleeping) {
+  if (isCloudSleeping || isAppInBackground()) {
     dirtyCloudKeys.add(storageKey);
     if (isKeysStorageKey(storageKey)) rememberDirtyKeySlotSnapshots(storageKey);
     savePendingCloudKeys();
@@ -2472,7 +2489,7 @@ function subscribeToCloudChanges() {
 
 async function loadStorageFromCloud(options = {}) {
   const force = Boolean(options.force);
-  if (!supabaseClient || isCloudSleeping) return;
+  if (!supabaseClient || isCloudSleeping || isAppInBackground()) return;
   if (isPhotoImporting) return;
   if (isCloudCheckRunning) {
     shouldReloadCloudAfterCurrentCheck = shouldReloadCloudAfterCurrentCheck || force;
@@ -4460,7 +4477,7 @@ async function hasAutomaticBackupForDate(date) {
 }
 
 async function createAutomaticBackup({ force = false, date = new Date() } = {}) {
-  if (!supabaseClient || isCloudSleeping) return false;
+  if (!supabaseClient || isCloudSleeping || isAppInBackground()) return false;
   await pendingCloudSync.catch(() => {});
   await syncCurrentRegistryToCloud();
 
@@ -8615,17 +8632,15 @@ async function initializeApp() {
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
-    savePendingCloudKeys();
-    if (!isCloudSleeping) syncCurrentRegistryNow();
+    pauseCloudWorkWhileBackgrounded();
   }
   else if (!enforceCloudSleepAfterInactivity()) queueWakeCloudRefreshes();
 });
 window.addEventListener("pagehide", () => {
-  savePendingCloudKeys();
-  if (!isCloudSleeping) syncCurrentRegistryNow();
+  pauseCloudWorkWhileBackgrounded();
 });
 window.addEventListener("online", () => {
-  if (isCloudSleeping) return;
+  if (isCloudSleeping || isAppInBackground()) return;
   requestAutomaticCloudRefresh({ force: true, immediate: true });
   queueWakeCloudRefreshes();
 });
