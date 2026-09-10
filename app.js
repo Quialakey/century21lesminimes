@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260909-24";
+const appBuildVersion = "20260910-1";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -666,6 +666,7 @@ let directCloudFlushTimers = new Map();
 let cloudInactivityTimer = null;
 let isCloudSleeping = false;
 let hasStartedCloudInactivityTracking = false;
+let lastCloudActivityAt = Date.now();
 let areSettingsOrganizationVisible = false;
 let areSettingsReplacementsVisible = false;
 
@@ -773,12 +774,31 @@ function enterCloudSleep() {
 
 function scheduleCloudSleep() {
   clearTimeout(cloudInactivityTimer);
-  cloudInactivityTimer = setTimeout(enterCloudSleep, cloudInactivityTimeoutMs);
+  if (isCloudSleeping) {
+    cloudInactivityTimer = null;
+    return;
+  }
+  const remainingInactivityMs = Math.max(0, cloudInactivityTimeoutMs - (Date.now() - lastCloudActivityAt));
+  cloudInactivityTimer = setTimeout(enterCloudSleep, remainingInactivityMs);
+}
+
+function recordCloudActivity() {
+  if (isCloudSleeping) return;
+  lastCloudActivityAt = Date.now();
+  scheduleCloudSleep();
+}
+
+function enforceCloudSleepAfterInactivity() {
+  if (isCloudSleeping) return true;
+  if (Date.now() - lastCloudActivityAt < cloudInactivityTimeoutMs) return false;
+  enterCloudSleep();
+  return true;
 }
 
 function resumeCloudSyncFromInactivity() {
   const wasSleeping = isCloudSleeping;
   isCloudSleeping = false;
+  lastCloudActivityAt = Date.now();
   document.body.classList.remove("is-cloud-sleeping");
   if (cloudSleepOverlay) cloudSleepOverlay.hidden = true;
   scheduleCloudSleep();
@@ -798,13 +818,7 @@ function startCloudInactivityTracking() {
   ["pointerdown", "keydown", "touchstart", "wheel"].forEach((eventName) => {
     document.addEventListener(
       eventName,
-      (event) => {
-        const isOverlayPointerEvent =
-          isCloudSleeping &&
-          cloudSleepOverlay?.contains(event.target) &&
-          (event.type === "pointerdown" || event.type === "touchstart");
-        if (!isOverlayPointerEvent) resumeCloudSyncFromInactivity();
-      },
+      () => recordCloudActivity(),
       { capture: true, passive: true },
     );
   });
@@ -8602,13 +8616,13 @@ async function initializeApp() {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
     savePendingCloudKeys();
-    syncCurrentRegistryNow();
+    if (!isCloudSleeping) syncCurrentRegistryNow();
   }
-  else if (!resumeCloudSyncFromInactivity()) queueWakeCloudRefreshes();
+  else if (!enforceCloudSleepAfterInactivity()) queueWakeCloudRefreshes();
 });
 window.addEventListener("pagehide", () => {
   savePendingCloudKeys();
-  syncCurrentRegistryNow();
+  if (!isCloudSleeping) syncCurrentRegistryNow();
 });
 window.addEventListener("online", () => {
   if (isCloudSleeping) return;
@@ -8616,10 +8630,10 @@ window.addEventListener("online", () => {
   queueWakeCloudRefreshes();
 });
 window.addEventListener("focus", () => {
-  if (!resumeCloudSyncFromInactivity()) queueWakeCloudRefreshes();
+  if (!enforceCloudSleepAfterInactivity()) queueWakeCloudRefreshes();
 });
 window.addEventListener("pageshow", () => {
-  if (!resumeCloudSyncFromInactivity()) queueWakeCloudRefreshes();
+  if (!enforceCloudSleepAfterInactivity()) queueWakeCloudRefreshes();
 });
 window.addEventListener("resize", () => requestAnimationFrame(syncSignatureHeightToActions));
 
