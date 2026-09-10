@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260910-3";
+const appBuildVersion = "20260910-4";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -8606,6 +8606,11 @@ cloudSleepOverlay?.addEventListener("click", (event) => {
 
 async function initializeApp() {
   document.documentElement.classList.toggle("is-tablet-device", isTabletDevice());
+  updateAccessLockState();
+  updateRegistryHeader();
+  updateTileViewToggle();
+  updateUndoButton();
+  render();
   if (await ensureFreshPublishedAppVersion()) return;
   resetLegacySyncMetadataIfNeeded();
   removeAutomaticBackupsFromLocalStorage();

@@ -531,10 +531,10 @@
 
     <script>
       (() => {
-        const fallbackVersion = "20260910-3";
-        const loadApp = (version) => {
+        const fallbackVersion = "20260910-4";
+        const loadApp = () => {
           const script = document.createElement("script");
-          script.src = `app.js?v=${encodeURIComponent(version || fallbackVersion)}&t=${Date.now()}`;
+          script.src = `app.js?v=${encodeURIComponent(fallbackVersion)}`;
           document.body.append(script);
         };
 
@@ -542,10 +542,7 @@
           navigator.serviceWorker.register(`sw.js?v=${fallbackVersion}`).catch(() => {});
         }
 
-        fetch(`app-version.json?t=${Date.now()}`, { cache: "no-store" })
-          .then((response) => (response.ok ? response.json() : null))
-          .then((published) => loadApp(published?.version || fallbackVersion))
-          .catch(() => loadApp(fallbackVersion));
+        loadApp();
       })();
     </script>
   </body>
