@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260910-4";
+const appBuildVersion = "20260911-1";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -1293,6 +1293,38 @@ function mergeKeyCollections(preferredValue, fallbackValue, options = {}) {
   return preferredKeys.map((key) => mergeKeyRecord(key, fallbackById.get(key.id), options));
 }
 
+function isArchivedPhotoOnlyLegacyResidue(storageKey, key) {
+  const config = Object.values(registryConfig).find((item) => item.keysStorageKey === storageKey);
+  if (!config || !key?.id) return false;
+
+  const normalizedKey = normalizeKey(key);
+  const hasArchivedCopy = parseStoredArray(config.archivesStorageKey, []).some(
+    (record) => record?.key?.id === normalizedKey.id,
+  );
+  if (!hasArchivedCopy) return false;
+
+  const hasTextContent = [
+    normalizedKey.property,
+    normalizedKey.postalCode,
+    normalizedKey.city,
+    normalizedKey.owner,
+    normalizedKey.ownerFirstName,
+    normalizedKey.notes,
+  ].some((value) => String(value || "").trim());
+  const hasPhoto = normalizedKey.sets.some((set) => Boolean(set.photo));
+  const hasMovementData = normalizedKey.sets.some(
+    (set) =>
+      set.status === "out" ||
+      set.holder ||
+      set.holderCompany ||
+      set.holderPhone ||
+      set.history.length ||
+      set.reservations.length,
+  );
+
+  return !hasTextContent && hasPhoto && !hasMovementData;
+}
+
 function preserveActiveKeyInfoDraft(storageKey, value) {
   if (!activeKeyInfoDraft || !hasPendingActiveKeyInfoDraft(storageKey)) return value;
   const keyInfo = typeof value === "string" ? parseStorageValue(value) : value;
@@ -1462,7 +1494,9 @@ function applyInitialCloudKeyStorageState(legacyKeyRows, slotRows, pendingStartu
       if (pendingWrite) return currentKey || normalizeKey(pendingWrite.value);
       if (keepRecentLocalSlots && hasPendingCloudRowChange(slotCloudKey) && currentKey) return currentKey;
       const legacyKey = legacyKeysById.get(emptySlot.id);
-      return legacyKey ? normalizeKey({ ...legacyKey, id: emptySlot.id }) : emptySlot;
+      return legacyKey && !isArchivedPhotoOnlyLegacyResidue(storageKey, legacyKey)
+        ? normalizeKey({ ...legacyKey, id: emptySlot.id })
+        : emptySlot;
     });
     const visibleLayoutIds = new Set(nextKeys.map((key) => key.id));
     slotRowsById.forEach((slotRow, keyId) => {
