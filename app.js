@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260911-4";
+const appBuildVersion = "20260911-5";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -47,7 +47,7 @@ const pendingCloudKeysStorageKey = "cles-pending-cloud-keys-v1";
 const dirtyKeySlotsStorageKey = "cles-dirty-key-slots-v1";
 const pendingKeySlotWritesStorageKey = "cles-pending-key-slot-writes-v1";
 const syncMetadataVersionStorageKey = "cles-sync-metadata-version-v1";
-const syncMetadataVersion = "20260909-21-fbvsgvdrdblxvmzutpjk";
+const syncMetadataVersion = "20260911-5-fbvsgvdrdblxvmzutpjk";
 const cloudSyncHeartbeatStorageKey = "cles-cloud-sync-heartbeat-v1";
 const lastLocalEditStorageKey = "cles-last-local-edit-v1";
 const keySlotCloudSeparator = "::slot::";
@@ -1436,6 +1436,7 @@ function saveKeySlotCloudRow(row, options = {}) {
   const pendingWrite = getPendingKeySlotWrite(row.key);
   if (pendingWrite) {
     if (cloudRowMatchesPendingKeySlotWrite(row, pendingWrite)) confirmPendingKeySlotWrite(row.key, row);
+    else if (cloudRowIsNewerThanPendingKeySlotWrite(row, pendingWrite)) discardPendingKeySlotWrite(row.key);
     else {
       dirtyCloudKeys.add(storageKey);
       failedCloudSyncKeys.add(storageKey);
@@ -1494,7 +1495,10 @@ function applyInitialCloudKeyStorageState(legacyKeyRows, slotRows, pendingStartu
         const pendingWrite = getPendingKeySlotWrite(slotCloudKey);
         if (pendingWrite) {
           if (cloudRowMatchesPendingKeySlotWrite(slotRow, pendingWrite)) confirmPendingKeySlotWrite(slotCloudKey, slotRow);
-          else return currentKey || normalizeKey(pendingWrite.value);
+          else if (cloudRowIsNewerThanPendingKeySlotWrite(slotRow, pendingWrite)) {
+            discardPendingKeySlotWrite(slotCloudKey);
+            return normalizeCloudSlotKey(slotRow);
+          } else return currentKey || normalizeKey(pendingWrite.value);
         }
         if (keepRecentLocalSlots && hasPendingCloudRowChange(slotCloudKey) && currentKey) return currentKey;
         return normalizeCloudSlotKey(slotRow);
@@ -1731,12 +1735,40 @@ function cloudRowMatchesPendingKeySlotWrite(row, pendingWrite = getPendingKeySlo
   return getComparableKeySlotValue(normalizeCloudSlotKey(row)) === pendingWrite.comparableValue;
 }
 
+function cloudRowIsNewerThanPendingKeySlotWrite(row, pendingWrite = getPendingKeySlotWrite(row?.key)) {
+  const cloudUpdatedAt = Date.parse(row?.updated_at || "");
+  const pendingSavedAt = Number(pendingWrite?.savedAt);
+  return Number.isFinite(cloudUpdatedAt) && Number.isFinite(pendingSavedAt) && cloudUpdatedAt > pendingSavedAt;
+}
+
 function clearDirtyKeySlot(storageKey, keyId) {
   const savedKeyIds = new Set(dirtyKeySlots.get(storageKey) || []);
   if (!savedKeyIds.delete(keyId)) return;
   if (savedKeyIds.size) dirtyKeySlots.set(storageKey, savedKeyIds);
   else dirtyKeySlots.delete(storageKey);
   saveDirtyKeySlots();
+}
+
+function discardPendingKeySlotWrite(cloudKey) {
+  const pendingWrite = getPendingKeySlotWrite(cloudKey);
+  if (!pendingWrite) return false;
+
+  pendingKeySlotWrites.delete(cloudKey);
+  const memoryKey = getRecentKeySlotMemoryKey(pendingWrite.storageKey, pendingWrite.keyId);
+  recentlyForcedKeySlots.delete(memoryKey);
+  recentlyClearedKeySlots.delete(memoryKey);
+  clearDirtyKeySlot(pendingWrite.storageKey, pendingWrite.keyId);
+  const activeDraftStorageKey = activeKeyInfoDraft?.storageKey || getRegistryConfig().keysStorageKey;
+  if (activeKeyInfoDraft?.keyId === pendingWrite.keyId && activeDraftStorageKey === pendingWrite.storageKey) {
+    activeKeyInfoDraft = null;
+  }
+  if (!getDirtyKeySlotIds(pendingWrite.storageKey).size) {
+    dirtyCloudKeys.delete(pendingWrite.storageKey);
+    failedCloudSyncKeys.delete(pendingWrite.storageKey);
+  }
+  savePendingKeySlotWrites();
+  savePendingCloudKeys();
+  return true;
 }
 
 function confirmPendingKeySlotWrite(cloudKey, row) {
@@ -2601,6 +2633,7 @@ async function loadStorageFromCloud(options = {}) {
     const metadata = [...(Array.isArray(baseMetadata) ? baseMetadata : []), ...slotMetadata];
     if (!Array.isArray(metadata)) return;
 
+    const metadataByKey = new Map(metadata.map((row) => [row.key, row]));
     const remoteVersions = new Map(metadata.map((row) => [row.key, row.updated_at || ""]));
     const changedKeys = metadata
       .filter((row) => {
@@ -2630,7 +2663,14 @@ async function loadStorageFromCloud(options = {}) {
       return;
     }
 
-    const locallyDirtyChangedKeys = changedKeys.filter(hasPendingCloudRowChange);
+    const locallyDirtyChangedKeys = changedKeys.filter((key) => {
+      const pendingWrite = isKeySlotCloudKey(key) ? getPendingKeySlotWrite(key) : null;
+      if (pendingWrite && cloudRowIsNewerThanPendingKeySlotWrite(metadataByKey.get(key), pendingWrite)) {
+        discardPendingKeySlotWrite(key);
+        return false;
+      }
+      return hasPendingCloudRowChange(key);
+    });
     if (locallyDirtyChangedKeys.length) {
       await Promise.all([...new Set(locallyDirtyChangedKeys.map(getSyncStorageKeyForCloudKey))].map((key) => syncStorageKeyToCloud(key)));
     }
