@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260911-3";
+const appBuildVersion = "20260911-4";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -611,6 +611,7 @@ const importDataBtn = document.querySelector("#importDataBtn");
 const backupFileInput = document.querySelector("#backupFileInput");
 
 let tableSettings = loadTableSettings();
+let hasResolvedInitialAccessSettings = getRuntimeStorageValue(tableSettingsStorageKey) !== null;
 let settingsDraft = null;
 let activeRegistry = loadActiveRegistry();
 let keys = loadKeys();
@@ -709,6 +710,14 @@ function hideAccessLock() {
 }
 
 function updateAccessLockState() {
+  if (!hasResolvedInitialAccessSettings) {
+    document.body.classList.remove("is-access-locked");
+    document.body.classList.add("is-access-loading");
+    if (accessLock) accessLock.hidden = true;
+    return;
+  }
+
+  document.body.classList.remove("is-access-loading");
   if (isAccessUnlocked()) {
     hideAccessLock();
     return;
@@ -2566,6 +2575,7 @@ async function loadStorageFromCloud(options = {}) {
         cloudRowVersions.set(row.key, row.updated_at || "");
       });
       tableSettings = loadTableSettings();
+      hasResolvedInitialAccessSettings = true;
       applyInitialCloudKeyStorageState(legacyKeyRows, slotRows, pendingStartupKeys);
       isApplyingCloudState = false;
       hasLoadedCloudState = true;
@@ -5762,6 +5772,7 @@ function saveTableSettings(nextSettings) {
   savePendingCloudKeys();
   scheduleStorageKeySync(tableSettingsStorageKey, 0);
   tableSettings = normalized;
+  hasResolvedInitialAccessSettings = true;
   updateAccessLockState();
   keys = loadKeys();
   archives = loadArchives();

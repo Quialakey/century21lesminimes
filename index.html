@@ -19,13 +19,13 @@
     <link rel="shortcut icon" type="image/png" href="quialakey-icon-20260908-1.png" />
     <link rel="apple-touch-icon" sizes="838x838" href="quialakey-icon-20260908-1.png" />
     <link rel="manifest" href="manifest.webmanifest?v=20260908-17" />
-    <link rel="stylesheet" href="styles.css?v=20260909-23" />
+    <link rel="stylesheet" href="styles.css?v=20260911-1" />
   </head>
-  <body class="is-access-locked">
+  <body class="is-access-loading">
     <button id="cloudSleepOverlay" class="cloud-sleep-overlay" type="button" aria-label="Réactiver le tableau" hidden>
       <span>Tableau en veille</span>
     </button>
-    <div id="accessLock" class="access-lock" role="dialog" aria-modal="true" aria-labelledby="accessAgencyTitle">
+    <div id="accessLock" class="access-lock" role="dialog" aria-modal="true" aria-labelledby="accessAgencyTitle" hidden>
       <section class="access-card">
         <img class="access-logo" src="quialakey-logo-banniere-20260907-2.jpg" alt="Quialakey" />
         <h1 id="accessAgencyTitle">Agence</h1>
@@ -46,6 +46,26 @@
         <p id="forgotPasswordMessage" class="forgot-password-message" hidden>Contacter : quialakey@gmail.com</p>
       </section>
     </div>
+    <script>
+      (() => {
+        try {
+          const settings = JSON.parse(localStorage.getItem("cles-table-settings-v1") || "null");
+          if (!settings) return;
+
+          const lockVersion = String(settings.accessLockVersion || 1);
+          const isUnlocked = localStorage.getItem("quialakey-access-unlocked-v1") === lockVersion;
+          const shouldLock = settings.accessLockEnabled === true && !isUnlocked;
+          document.body.classList.remove("is-access-loading");
+          document.body.classList.toggle("is-access-locked", shouldLock);
+          document.querySelector("#accessLock").hidden = !shouldLock;
+          if (shouldLock && settings.agencyName) {
+            document.querySelector("#accessAgencyTitle").textContent = settings.agencyName;
+          }
+        } catch {
+          // L'application terminera la vérification avec les réglages Supabase.
+        }
+      })();
+    </script>
     <div id="saleCelebration" class="sale-celebration" aria-live="polite" hidden>
       <div class="celebration-sky" aria-hidden="true">
       </div>
@@ -531,7 +551,7 @@
 
     <script>
       (() => {
-        const fallbackVersion = "20260911-3";
+        const fallbackVersion = "20260911-4";
         const loadApp = () => {
           const script = document.createElement("script");
           script.src = `app.js?v=${encodeURIComponent(fallbackVersion)}`;

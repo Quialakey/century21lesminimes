@@ -47,6 +47,16 @@ body.is-cloud-sleeping {
   overflow: hidden;
 }
 
+body.is-access-loading {
+  overflow: hidden;
+  background: #17392d;
+}
+
+body.is-access-loading .app-shell,
+body.is-access-loading .access-lock {
+  display: none;
+}
+
 .cloud-sleep-overlay {
   position: fixed;
   inset: 0;
