@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260911-1";
+const appBuildVersion = "20260911-2";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -60,7 +60,7 @@ const cloudPollIntervalMs = 5000;
 const mobileCloudPollIntervalMs = 5000;
 const cloudInteractionRefreshThrottleMs = 5000;
 const cloudWakeRefreshDelays = [0, 2500];
-const cloudInactivityTimeoutMs = 5 * 60 * 1000;
+const cloudInactivityTimeoutMs = 3 * 60 * 1000;
 const cloudWriteDebounceMs = 300;
 const keySlotWriteMaxAttempts = 8;
 const keySlotWriteRetryBaseDelayMs = 90;
