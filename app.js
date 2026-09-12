@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260911-5";
+const appBuildVersion = "20260912-1";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -60,6 +60,7 @@ const cloudPollIntervalMs = 3000;
 const mobileCloudPollIntervalMs = 3000;
 const cloudInteractionRefreshThrottleMs = 3000;
 const cloudWakeRefreshDelays = [0, 2500];
+const initialCloudLoadRetryDelays = [0, 700, 1800, 3500];
 const cloudInactivityTimeoutMs = 3 * 60 * 1000;
 const cloudWriteDebounceMs = 300;
 const keySlotWriteMaxAttempts = 8;
@@ -67,6 +68,7 @@ const keySlotWriteRetryBaseDelayMs = 90;
 const pendingLocalEditGraceMs = 12 * 1000;
 const recentKeySlotMemoryMs = 12 * 1000;
 const runtimeStorageFallback = new Map();
+let isApplyingCloudState = false;
 const browserStorage = (() => {
   try {
     return window.localStorage;
@@ -91,6 +93,15 @@ function setRuntimeStorageValue(key, value) {
     browserStorage?.setItem(key, stringValue);
     return true;
   } catch (error) {
+    if (isApplyingCloudState && browserStorage) {
+      try {
+        browserStorage.removeItem(key);
+        browserStorage.setItem(key, stringValue);
+        return true;
+      } catch {
+        // La copie Supabase reste disponible en mémoire pour cette session.
+      }
+    }
     console.warn("Local storage fallback", key, error.message);
     return false;
   }
@@ -614,6 +625,7 @@ let tableSettings = loadTableSettings();
 let hasResolvedInitialAccessSettings = getRuntimeStorageValue(tableSettingsStorageKey) !== null;
 let settingsDraft = null;
 let activeRegistry = loadActiveRegistry();
+let shouldSanitizeCachedArchivedResidues = true;
 let keys = loadKeys();
 let archives = loadArchives();
 let contacts = loadContacts();
@@ -651,7 +663,6 @@ const celebrationAudioFiles = ["Ados.mp3", "Adultes.mp3", "Langue.mp3"];
 let celebrationAudioPlayers = [];
 let photoViewer = null;
 let lastLocalEditAt = Number(getRuntimeStorageValue(lastLocalEditStorageKey) || 0);
-let isApplyingCloudState = false;
 let isSavingKeyInfoDraft = false;
 let pendingCloudSync = Promise.resolve();
 let failedCloudSyncKeys = new Set();
@@ -666,6 +677,7 @@ let hasLoadedCloudState = false;
 let hasCompletedInitialCloudLoad = false;
 let isCloudCheckRunning = false;
 let shouldReloadCloudAfterCurrentCheck = false;
+let initialCloudLoadPromise = null;
 let lastSlotCloudSeenAt = "";
 let lastAutomaticCloudRefreshAt = 0;
 let automaticCloudRefreshTimer = null;
@@ -828,7 +840,11 @@ function resumeCloudSyncFromInactivity() {
   document.body.classList.remove("is-cloud-sleeping");
   if (cloudSleepOverlay) cloudSleepOverlay.hidden = true;
   scheduleCloudSleep();
-  if (!wasSleeping || !hasCompletedInitialCloudLoad) return false;
+  if (!hasCompletedInitialCloudLoad) {
+    void ensureInitialCloudStateLoaded();
+    return true;
+  }
+  if (!wasSleeping) return false;
 
   lastAutomaticCloudRefreshAt = 0;
   setTimeout(async () => {
@@ -888,6 +904,50 @@ async function ensureFreshPublishedAppVersion() {
     console.warn("Version check failed", error.message);
     return false;
   }
+}
+
+function clearPrematureCloudSleepForInitialLoad() {
+  if (hasCompletedInitialCloudLoad) return;
+  isCloudSleeping = false;
+  document.body.classList.remove("is-cloud-sleeping");
+  if (cloudSleepOverlay) cloudSleepOverlay.hidden = true;
+}
+
+async function ensureInitialCloudStateLoaded() {
+  if (hasCompletedInitialCloudLoad) return true;
+  if (initialCloudLoadPromise) return initialCloudLoadPromise;
+
+  initialCloudLoadPromise = (async () => {
+    for (const delay of initialCloudLoadRetryDelays) {
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      if (isAppInBackground()) continue;
+
+      clearPrematureCloudSleepForInitialLoad();
+      await loadStorageFromCloud({ force: true });
+      if (hasCompletedInitialCloudLoad) return true;
+    }
+    return false;
+  })();
+
+  try {
+    return await initialCloudLoadPromise;
+  } finally {
+    initialCloudLoadPromise = null;
+  }
+}
+
+function refreshCloudAfterForeground() {
+  if (!hasCompletedInitialCloudLoad) {
+    clearPrematureCloudSleepForInitialLoad();
+    ensureInitialCloudStateLoaded().then((loaded) => {
+      if (!loaded) return;
+      updateAccessLockState();
+      refreshDataFromStorage({ keepSelection: true });
+    });
+    return;
+  }
+
+  if (!enforceCloudSleepAfterInactivity()) queueWakeCloudRefreshes();
 }
 
 function queueStandaloneCloudRefresh(delay = 0) {
@@ -1302,7 +1362,7 @@ function mergeKeyCollections(preferredValue, fallbackValue, options = {}) {
   return preferredKeys.map((key) => mergeKeyRecord(key, fallbackById.get(key.id), options));
 }
 
-function isArchivedPhotoOnlyLegacyResidue(storageKey, key) {
+function isArchivedEmptySlotLegacyResidue(storageKey, key) {
   const config = Object.values(registryConfig).find((item) => item.keysStorageKey === storageKey);
   if (!config || !key?.id) return false;
 
@@ -1320,9 +1380,9 @@ function isArchivedPhotoOnlyLegacyResidue(storageKey, key) {
     normalizedKey.ownerFirstName,
     normalizedKey.notes,
   ].some((value) => String(value || "").trim());
-  const hasPhoto = normalizedKey.sets.some((set) => Boolean(set.photo));
-  const hasMovementData = normalizedKey.sets.some(
+  const hasOperationalResidue = normalizedKey.sets.some(
     (set) =>
+      Boolean(set.photo) ||
       set.status === "out" ||
       set.holder ||
       set.holderCompany ||
@@ -1331,7 +1391,12 @@ function isArchivedPhotoOnlyLegacyResidue(storageKey, key) {
       set.reservations.length,
   );
 
-  return !hasTextContent && hasPhoto && !hasMovementData;
+  return !hasTextContent && hasOperationalResidue;
+}
+
+function sanitizeCachedArchivedResidues(storageKey, savedKeys) {
+  if (!shouldSanitizeCachedArchivedResidues || !Array.isArray(savedKeys)) return savedKeys;
+  return savedKeys.map((key) => (isArchivedEmptySlotLegacyResidue(storageKey, key) ? makeEmptyKey(key) : key));
 }
 
 function preserveActiveKeyInfoDraft(storageKey, value) {
@@ -1507,7 +1572,7 @@ function applyInitialCloudKeyStorageState(legacyKeyRows, slotRows, pendingStartu
       if (pendingWrite) return currentKey || normalizeKey(pendingWrite.value);
       if (keepRecentLocalSlots && hasPendingCloudRowChange(slotCloudKey) && currentKey) return currentKey;
       const legacyKey = legacyKeysById.get(emptySlot.id);
-      return legacyKey && !isArchivedPhotoOnlyLegacyResidue(storageKey, legacyKey)
+      return legacyKey && !isArchivedEmptySlotLegacyResidue(storageKey, legacyKey)
         ? normalizeKey({ ...legacyKey, id: emptySlot.id })
         : emptySlot;
     });
@@ -2612,12 +2677,14 @@ async function loadStorageFromCloud(options = {}) {
       isApplyingCloudState = false;
       hasLoadedCloudState = true;
       hasCompletedInitialCloudLoad = true;
+      shouldSanitizeCachedArchivedResidues = false;
       saveCloudRowVersions();
       await syncCurrentRegistryToCloud();
       if (pendingStartupKeys.size) {
         const syncablePendingKeys = [...pendingStartupKeys].filter((key) => getBackupStorageKeys().includes(key));
         await Promise.all(syncablePendingKeys.map((key) => syncStorageKeyToCloud(key)));
       }
+      updateAccessLockState();
       refreshDataFromStorage({ keepSelection: true });
       return;
     }
@@ -2978,12 +3045,14 @@ function normalizeKey(key) {
 }
 
 function loadKeys() {
-  const saved = getRuntimeStorageValue(getRegistryConfig().keysStorageKey);
+  const storageKey = getRegistryConfig().keysStorageKey;
+  const saved = getRuntimeStorageValue(storageKey);
   if (!saved) return makeInitialKeys();
 
   try {
     const parsed = JSON.parse(saved);
-    return Array.isArray(parsed) ? mergeKeysWithCurrentLayout(parsed) : makeInitialKeys();
+    const mergedKeys = Array.isArray(parsed) ? mergeKeysWithCurrentLayout(parsed) : makeInitialKeys();
+    return sanitizeCachedArchivedResidues(storageKey, mergedKeys);
   } catch {
     return makeInitialKeys();
   }
@@ -2997,7 +3066,8 @@ function loadKeysForRegistry(registry) {
 
   try {
     const parsed = JSON.parse(saved);
-    return Array.isArray(parsed) ? mergeKeysWithCurrentLayout(parsed) : makeInitialKeys();
+    const mergedKeys = Array.isArray(parsed) ? mergeKeysWithCurrentLayout(parsed) : makeInitialKeys();
+    return sanitizeCachedArchivedResidues(config.keysStorageKey, mergedKeys);
   } catch {
     return makeInitialKeys();
   }
@@ -8701,7 +8771,7 @@ async function initializeApp() {
   removeAutomaticBackupsFromLocalStorage();
   updateAccessLockState();
   ensureDeviceName();
-  await loadStorageFromCloud({ force: isStandaloneHomeScreenApp() });
+  await ensureInitialCloudStateLoaded();
   updateAccessLockState();
   migrateArchivedSlots();
   subscribeToCloudChanges();
@@ -8722,13 +8792,12 @@ async function initializeApp() {
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
-    if (isPhoneOrTabletDevice()) enterCloudSleep();
+    if (isPhoneOrTabletDevice() && hasCompletedInitialCloudLoad) enterCloudSleep();
     else pauseCloudWorkWhileBackgrounded();
-  }
-  else if (!enforceCloudSleepAfterInactivity()) queueWakeCloudRefreshes();
+  } else refreshCloudAfterForeground();
 });
 window.addEventListener("pagehide", () => {
-  if (isPhoneOrTabletDevice()) enterCloudSleep();
+  if (isPhoneOrTabletDevice() && hasCompletedInitialCloudLoad) enterCloudSleep();
   else pauseCloudWorkWhileBackgrounded();
 });
 window.addEventListener("online", () => {
@@ -8737,10 +8806,10 @@ window.addEventListener("online", () => {
   queueWakeCloudRefreshes();
 });
 window.addEventListener("focus", () => {
-  if (!enforceCloudSleepAfterInactivity()) queueWakeCloudRefreshes();
+  refreshCloudAfterForeground();
 });
 window.addEventListener("pageshow", () => {
-  if (!enforceCloudSleepAfterInactivity()) queueWakeCloudRefreshes();
+  refreshCloudAfterForeground();
 });
 window.addEventListener("resize", () => requestAnimationFrame(syncSignatureHeightToActions));
 
