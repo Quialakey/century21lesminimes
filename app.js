@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260912-2";
+const appBuildVersion = "20260912-3";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -2470,6 +2470,8 @@ async function writeStorageKeyToCloudNow(storageKey, options = {}) {
   cloudSyncTimers.delete(storageKey);
 
   if (isKeysStorageKey(storageKey)) {
+    clearTimeout(directCloudFlushTimers.get(storageKey));
+    directCloudFlushTimers.delete(storageKey);
     pendingCloudSync = pendingCloudSync.catch(() => {}).then(() => writeKeySlotsToCloud(storageKey, options));
     return pendingCloudSync;
   }
@@ -2534,7 +2536,14 @@ async function writeStorageKeyToCloudNow(storageKey, options = {}) {
 }
 
 async function syncCurrentRegistryNow() {
-  const pendingKeys = getPendingCloudSyncKeys();
+  const activeKeysStorageKey = getRegistryConfig().keysStorageKey;
+  const pendingKeys = getPendingCloudSyncKeys().sort((first, second) => {
+    if (first === activeKeysStorageKey) return -1;
+    if (second === activeKeysStorageKey) return 1;
+    if (isKeysStorageKey(first) && !isKeysStorageKey(second)) return -1;
+    if (!isKeysStorageKey(first) && isKeysStorageKey(second)) return 1;
+    return 0;
+  });
   let didSyncEveryKey = true;
 
   for (const storageKey of pendingKeys) {
