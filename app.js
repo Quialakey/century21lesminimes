@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260912-1";
+const appBuildVersion = "20260912-2";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -56,9 +56,9 @@ const automaticBackupRetentionCount = 2;
 const automaticBackupWeekday = 5;
 const automaticBackupHour = 12;
 const automaticBackupMinute = 0;
-const cloudPollIntervalMs = 3000;
-const mobileCloudPollIntervalMs = 3000;
-const cloudInteractionRefreshThrottleMs = 3000;
+const cloudPollIntervalMs = 2000;
+const mobileCloudPollIntervalMs = 2000;
+const cloudInteractionRefreshThrottleMs = 2000;
 const cloudWakeRefreshDelays = [0, 2500];
 const initialCloudLoadRetryDelays = [0, 700, 1800, 3500];
 const cloudInactivityTimeoutMs = 3 * 60 * 1000;
@@ -848,7 +848,7 @@ function resumeCloudSyncFromInactivity() {
 
   lastAutomaticCloudRefreshAt = 0;
   setTimeout(async () => {
-    await loadStorageFromCloud({ force: true });
+    await loadStorageFromCloud({ force: true, full: true });
     await ensureMissedAutomaticBackupOnOpen();
   }, 0);
   return true;
@@ -953,7 +953,7 @@ function refreshCloudAfterForeground() {
 function queueStandaloneCloudRefresh(delay = 0) {
   if (!isStandaloneHomeScreenApp()) return;
   setTimeout(() => {
-    loadStorageFromCloud({ force: true });
+    loadStorageFromCloud({ force: true, full: true });
   }, delay);
 }
 
@@ -965,7 +965,7 @@ function requestAutomaticCloudRefresh(options = {}) {
   const run = () => {
     lastAutomaticCloudRefreshAt = Date.now();
     retryFailedCloudSyncs().catch((error) => console.warn("Supabase retry failed", error.message));
-    loadStorageFromCloud({ force });
+    loadStorageFromCloud({ force, full: true });
   };
 
   clearTimeout(automaticCloudRefreshTimer);
@@ -1587,7 +1587,8 @@ function applyInitialCloudKeyStorageState(legacyKeyRows, slotRows, pendingStartu
       if (!visibleLayoutIds.has(keyId) && isKeyFilled(legacyKey)) nextKeys.push(normalizeKey(legacyKey));
     });
 
-    setRuntimeStorageValue(storageKey, JSON.stringify(nextKeys));
+    const nextValue = JSON.stringify(nextKeys);
+    if (getRuntimeStorageValue(storageKey) !== nextValue) setRuntimeStorageValue(storageKey, nextValue);
   });
 
   (Array.isArray(slotRows) ? slotRows : []).forEach((row) => {
@@ -2627,6 +2628,51 @@ function subscribeToCloudChanges() {
     .subscribe();
 }
 
+async function reloadCompleteCloudState() {
+  const pendingStorageKeys = new Set(getPendingCloudSyncKeys());
+  const previousStorage = new Map(getBackupStorageKeys().map((key) => [key, getRuntimeStorageValue(key)]));
+  const fullBaseStorageKeys = getCloudBaseStorageKeys();
+  const [{ data: baseRows, error: baseRowsError }, slotRows] = await Promise.all([
+    supabaseClient
+      .from("app_state")
+      .select("key,value,updated_at")
+      .in("key", fullBaseStorageKeys),
+    loadKeySlotCloudRows(),
+  ]);
+  if (baseRowsError) throw baseRowsError;
+  if ((!Array.isArray(baseRows) || !baseRows.length) && !slotRows.length) {
+    console.warn("Supabase full refresh returned no app state rows.");
+    return false;
+  }
+
+  isApplyingCloudState = true;
+  try {
+    (Array.isArray(baseRows) ? baseRows : []).forEach((row) => {
+      if (row.key === cloudSyncHeartbeatStorageKey || isKeysStorageKey(row.key)) return;
+      if (!pendingStorageKeys.has(row.key)) saveStorageValue(row.key, stringifyCloudValue(row.value));
+    });
+    const legacyKeyRows = (Array.isArray(baseRows) ? baseRows : []).filter((row) => isKeysStorageKey(row.key));
+    applyInitialCloudKeyStorageState(legacyKeyRows, slotRows, pendingStorageKeys);
+  } finally {
+    isApplyingCloudState = false;
+  }
+
+  (Array.isArray(baseRows) ? baseRows : []).forEach((row) => {
+    cloudRowVersions.set(row.key, row.updated_at || "");
+  });
+  saveCloudRowVersions();
+  hasResolvedInitialAccessSettings = true;
+
+  const hasChanged = getBackupStorageKeys().some(
+    (key) => previousStorage.get(key) !== getRuntimeStorageValue(key),
+  );
+  if (hasChanged) {
+    updateAccessLockState();
+    refreshDataFromStorage({ keepSelection: true });
+  }
+  return true;
+}
+
 async function loadStorageFromCloud(options = {}) {
   const force = Boolean(options.force);
   if (!supabaseClient || isCloudSleeping || isAppInBackground()) return;
@@ -2642,6 +2688,11 @@ async function loadStorageFromCloud(options = {}) {
     await retryFailedCloudSyncs();
   }
   try {
+    if (hasLoadedCloudState && options.full) {
+      await reloadCompleteCloudState();
+      return;
+    }
+
     if (!hasLoadedCloudState) {
       const pendingStartupKeys = new Set(getPendingCloudSyncKeys());
       const [{ data, error }, { data: legacyKeyRows, error: legacyKeyRowsError }, slotRows] = await Promise.all([
@@ -2774,7 +2825,7 @@ async function loadStorageFromCloud(options = {}) {
     isCloudCheckRunning = false;
     if (shouldReloadCloudAfterCurrentCheck) {
       shouldReloadCloudAfterCurrentCheck = false;
-      setTimeout(() => loadStorageFromCloud({ force: true }), 0);
+      setTimeout(() => loadStorageFromCloud({ force: true, full: true }), 0);
     }
   }
 }
