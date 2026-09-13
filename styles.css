@@ -2041,11 +2041,11 @@ body.is-moving-key .photo-hover {
 }
 
 .global-history-list li[data-history-action="reserved"] small {
-  margin-top: 4px;
+  margin-top: 1px;
 }
 
 .global-history-list li[data-history-action="reserved"] span {
-  margin-top: 3px;
+  margin-top: 1px;
 }
 
 .global-history-list em {
