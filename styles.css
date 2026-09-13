@@ -1974,7 +1974,7 @@ body.is-moving-key .photo-hover {
 .global-history-list li {
   position: relative;
   display: grid;
-  gap: 4px;
+  gap: 3px;
   padding: 10px;
   border: 1px solid #3f4844;
   border-radius: 8px;
