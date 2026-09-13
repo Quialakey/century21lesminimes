@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260913-2";
+const appBuildVersion = "20260913-3";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -5436,38 +5436,43 @@ function renderGlobalHistoryItems(targetList = globalHistoryList, registryFilter
     const deviceButton = document.createElement("button");
     const device = document.createElement("em");
     const historyKeyId = entry.keyId || getKeyIdFromHistoryTitle(entry.title);
+    const actionClass = getActionClass(entry.action);
     item.dataset.globalHistoryId = getGlobalHistoryEntryId(entry);
     item.dataset.historyRegistry = entry.registry || "";
     item.dataset.historyKeyId = historyKeyId;
     item.dataset.historySetId = entry.setId || "";
     item.dataset.historyArchiveId = entry.archiveId || "";
-    item.dataset.historyAction = getActionClass(entry.action);
+    item.dataset.historyAction = actionClass;
     item.title = historyKeyId
       ? "Cliquer pour ouvrir la fiche. Ctrl + clic pour supprimer cette ligne d'historique"
       : "Ctrl + clic pour supprimer cette ligne d'historique";
     const detailParts = String(entry.details || "").split("|").map((part) => part.trim()).filter(Boolean);
-    const reservationDateDetail =
-      getActionClass(entry.action) === "reserved"
-        ? detailParts.find((part) => /^Pour le\s+/i.test(part))
+    const reservationDateSource =
+      actionClass === "reserved"
+        ? detailParts.find((part) => /^Pour le\s+/i.test(part)) ||
+          detailParts.find((part) => /^Annulation\s+(?:de\s+)?r[ée]servation\s+du\s+/i.test(part))
         : "";
+    const reservationDateDetail = /^Annulation\s+/i.test(reservationDateSource || "")
+      ? reservationDateSource.replace(/^Annulation\s+(?:de\s+)?/i, "")
+      : reservationDateSource;
     const reservationPersonDetail =
-      getActionClass(entry.action) === "reserved"
+      actionClass === "reserved"
         ? detailParts.find((part) => /^Intervenant\s*:/i.test(part))
         : "";
     const reservationPhoneDetail =
-      getActionClass(entry.action) === "reserved"
+      actionClass === "reserved"
         ? detailParts.find((part) => /^T\u00e9l\u00e9phone\s*:/i.test(part))
         : "";
     const reservationPerson = reservationPersonDetail?.replace(/^Intervenant\s*:\s*/i, "").trim() || entry.actor || "";
-    const reservationPhone = reservationPhoneDetail?.replace(/^T\u00e9l\u00e9phone\s*:\s*/i, "").trim() || "";
-    let visibleDetails = reservationDateDetail
+    const reservationPhone =
+      reservationPhoneDetail?.replace(/^T\u00e9l\u00e9phone\s*:\s*/i, "").trim() || entry.actorPhone || "";
+    let visibleDetails = reservationDateSource
       ? detailParts
-          .filter((part) => part !== reservationDateDetail)
+          .filter((part) => part !== reservationDateSource)
           .filter((part) => part !== reservationPersonDetail)
           .filter((part) => part !== reservationPhoneDetail)
           .join(" | ")
       : entry.details;
-    const actionClass = getActionClass(entry.action);
     const normalizedEntryAction = String(entry.action || "")
       .toLocaleLowerCase("fr-FR")
       .normalize("NFD")
@@ -5512,9 +5517,9 @@ function renderGlobalHistoryItems(targetList = globalHistoryList, registryFilter
     });
     item.append(title);
     if (reservationDateDetail) item.append(reservationDateLine);
-    if (getActionClass(entry.action) === "reserved" && visibleDetails) item.append(details);
+    if (actionClass === "reserved" && visibleDetails) item.append(details);
     item.append(meta, deviceButton);
-    if (getActionClass(entry.action) !== "reserved" && visibleDetails) item.append(details);
+    if (actionClass !== "reserved" && visibleDetails) item.append(details);
     item.append(device);
     targetList.append(item);
   });
