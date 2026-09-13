@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260913-1";
+const appBuildVersion = "20260913-2";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -4885,6 +4885,7 @@ function getActionClass(action) {
     .toLocaleLowerCase("fr-FR")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+  if (readableAction.includes("annul")) return "reserved";
   if (readableAction.includes("entr") || readableAction.includes("rentr") || readableAction.includes("creation") || readableAction.includes("restauration")) return "in";
   if (readableAction.includes("sorti") || readableAction.includes("sortie")) return "out";
   if (readableAction.includes("reserv")) return "reserved";
