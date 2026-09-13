@@ -2005,7 +2005,7 @@ body.is-moving-key .photo-hover {
 }
 
 .global-history-list li[data-history-action="reserved"] {
-  gap: 2px;
+  gap: 1px;
 }
 
 .global-history-list li[data-history-action="removed"],
@@ -2041,11 +2041,11 @@ body.is-moving-key .photo-hover {
 }
 
 .global-history-list li[data-history-action="reserved"] small {
-  margin-top: 1px;
+  margin-top: 2px;
 }
 
 .global-history-list li[data-history-action="reserved"] span {
-  margin-top: 1px;
+  margin-top: 2px;
 }
 
 .global-history-list em {
