@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260913-3";
+const appBuildVersion = "20260913-4";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -5452,8 +5452,12 @@ function renderGlobalHistoryItems(targetList = globalHistoryList, registryFilter
         ? detailParts.find((part) => /^Pour le\s+/i.test(part)) ||
           detailParts.find((part) => /^Annulation\s+(?:de\s+)?r[ée]servation\s+du\s+/i.test(part))
         : "";
-    const reservationDateDetail = /^Annulation\s+/i.test(reservationDateSource || "")
-      ? reservationDateSource.replace(/^Annulation\s+(?:de\s+)?/i, "")
+    const isReservationCancellation = /^Annulation\s+/i.test(reservationDateSource || "");
+    const reservationDateDetail = isReservationCancellation
+      ? reservationDateSource
+          .replace(/^Annulation\s+(?:de\s+)?/i, "")
+          .replace(/^r/, "R")
+          .replace(/(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(\d{1,2}:\d{2})\b/, "$1 \u00e0 $2")
       : reservationDateSource;
     const reservationPersonDetail =
       actionClass === "reserved"
