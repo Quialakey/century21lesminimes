@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260912-3";
+const appBuildVersion = "20260913-1";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -52,6 +52,7 @@ const cloudSyncHeartbeatStorageKey = "cles-cloud-sync-heartbeat-v1";
 const lastLocalEditStorageKey = "cles-last-local-edit-v1";
 const keySlotCloudSeparator = "::slot::";
 const automaticBackupKeyPrefix = "cles-auto-backup-";
+const automaticBackupsEnabled = false;
 const automaticBackupRetentionCount = 2;
 const automaticBackupWeekday = 5;
 const automaticBackupHour = 12;
@@ -4691,7 +4692,7 @@ async function hasAutomaticBackupForDate(date) {
 }
 
 async function createAutomaticBackup({ force = false, date = new Date() } = {}) {
-  if (!supabaseClient || isCloudSleeping || isAppInBackground()) return false;
+  if (!automaticBackupsEnabled || !supabaseClient || isCloudSleeping || isAppInBackground()) return false;
   await pendingCloudSync.catch(() => {});
   await syncCurrentRegistryToCloud();
 
@@ -4718,6 +4719,7 @@ function getNextAutomaticBackupDelay() {
 }
 
 function scheduleAutomaticBackup() {
+  if (!automaticBackupsEnabled) return;
   window.setTimeout(async () => {
     try {
       await createAutomaticBackup();
@@ -4731,6 +4733,7 @@ function scheduleAutomaticBackup() {
 }
 
 async function ensureTodaysAutomaticBackupIfLate() {
+  if (!automaticBackupsEnabled) return;
   const now = new Date();
   if (now.getDay() !== automaticBackupWeekday) return;
   if (now.getHours() < automaticBackupHour || (now.getHours() === automaticBackupHour && now.getMinutes() < automaticBackupMinute)) return;
@@ -4742,6 +4745,7 @@ async function ensureTodaysAutomaticBackupIfLate() {
 }
 
 async function ensureMissedAutomaticBackupOnOpen() {
+  if (!automaticBackupsEnabled) return;
   const previousDate = getLatestAutomaticBackupDate();
   try {
     if (await hasAutomaticBackupForDate(previousDate)) return;
