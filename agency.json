@@ -1,0 +1,7 @@
+{
+  "agencyId": "century21lesminimes",
+  "agencyName": "Century 21 Les Minimes",
+  "supabaseUrl": "https://fbvsgvdrdblxvmzutpjk.supabase.co",
+  "supabasePublishableKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0",
+  "migrateLegacyStorage": true
+}

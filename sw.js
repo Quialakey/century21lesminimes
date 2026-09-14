@@ -1,4 +1,7 @@
-const runtimeCacheName = "cles-runtime-20260914-1";
+const workerUrl = new URL(self.location.href);
+const agencyCacheId = String(workerUrl.searchParams.get("agency") || "default-agency").replace(/[^a-z0-9-]/gi, "-");
+const runtimeCachePrefix = `quialakey-runtime-${agencyCacheId}-`;
+const runtimeCacheName = `${runtimeCachePrefix}20260914-2`;
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -11,7 +14,10 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((key) => key.startsWith("cles-runtime-") && key !== runtimeCacheName)
+            .filter(
+              (key) =>
+                (key.startsWith(runtimeCachePrefix) && key !== runtimeCacheName) || key.startsWith("cles-runtime-"),
+            )
             .map((key) => caches.delete(key)),
         ),
       )

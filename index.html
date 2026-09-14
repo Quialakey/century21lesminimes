@@ -18,8 +18,8 @@
     <link rel="icon" type="image/png" sizes="838x838" href="quialakey-icon-20260908-1.png" />
     <link rel="shortcut icon" type="image/png" href="quialakey-icon-20260908-1.png" />
     <link rel="apple-touch-icon" sizes="838x838" href="quialakey-icon-20260908-1.png" />
-    <link rel="manifest" href="manifest.webmanifest?v=20260908-17" />
-    <link rel="stylesheet" href="styles.css?v=20260914-1" />
+    <link rel="manifest" href="manifest.webmanifest?v=20260914-2" />
+    <link rel="stylesheet" href="styles.css?v=20260914-2" />
   </head>
   <body class="is-access-loading">
     <button id="cloudSleepOverlay" class="cloud-sleep-overlay" type="button" aria-label="Réactiver le tableau" hidden>
@@ -549,9 +549,10 @@
       </aside>
     </main>
 
+    <script src="agency-config.js?v=20260914-2"></script>
     <script>
       (() => {
-        const fallbackVersion = "20260914-1";
+        const fallbackVersion = "20260914-2";
         const loadApp = () => {
           const script = document.createElement("script");
           script.src = `app.js?v=${encodeURIComponent(fallbackVersion)}`;
@@ -559,7 +560,8 @@
         };
 
         if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
-          navigator.serviceWorker.register(`sw.js?v=${fallbackVersion}`).catch(() => {});
+          const agencyId = encodeURIComponent(window.QUIALAKEY_CONFIG?.agencyId || "default-agency");
+          navigator.serviceWorker.register(`sw.js?v=${fallbackVersion}&agency=${agencyId}`).catch(() => {});
         }
 
         loadApp();

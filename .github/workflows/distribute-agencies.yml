@@ -1,0 +1,28 @@
+name: Distribute Quialakey release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger every agency deployment
+        env:
+          GH_TOKEN: ${{ secrets.AGENCY_DISPATCH_TOKEN }}
+          AGENCY_REPOSITORIES: ${{ vars.AGENCY_REPOSITORIES }}
+        run: |
+          if [ -z "$GH_TOKEN" ] || [ -z "$AGENCY_REPOSITORIES" ]; then
+            echo "Agency distribution is not configured yet."
+            exit 0
+          fi
+
+          IFS=',' read -ra repositories <<< "$AGENCY_REPOSITORIES"
+          for repository in "${repositories[@]}"; do
+            repository="$(echo "$repository" | xargs)"
+            if [ -n "$repository" ]; then
+              gh api --method POST "repos/Quialakey/$repository/dispatches" -f event_type=quialakey_release
+            fi
+          done

@@ -1,0 +1,7 @@
+{
+  "agencyId": "nouvelle-agence",
+  "agencyName": "Nouvelle agence",
+  "supabaseUrl": "https://PROJECT_REF.supabase.co",
+  "supabasePublishableKey": "sb_publishable_REPLACE_ME",
+  "migrateLegacyStorage": false
+}

@@ -20,13 +20,23 @@ const defaultAddressReplacements = [
   { id: "passage", word: "Passage", replacement: "Pas." },
   { id: "esplanade", word: "Esplanade", replacement: "Esp." },
 ];
-const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
-const supabaseAnonKey =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
+const rawAgencyConfig = globalThis.QUIALAKEY_CONFIG || {};
+const agencyId =
+  String(rawAgencyConfig.agencyId || "default-agency")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "default-agency";
+const configuredAgencyName = String(rawAgencyConfig.agencyName || "Agence").trim() || "Agence";
+const shouldMigrateLegacyStorage = rawAgencyConfig.migrateLegacyStorage === true;
+const browserStorageNamespace = `quialakey:${agencyId}:`;
+const supabaseUrl = String(rawAgencyConfig.supabaseUrl || "").trim();
+const supabasePublishableKey = String(rawAgencyConfig.supabasePublishableKey || "").trim();
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260914-1";
+const appBuildVersion = "20260914-2";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
-const appBuildReloadStorageKey = "cles-app-build-reload-v1";
+const appBuildReloadStorageKey = `${browserStorageNamespace}cles-app-build-reload-v1`;
 const appBuildVersionUrl = "app-version.json";
 const accessUnlockedStorageKey = "quialakey-access-unlocked-v1";
 const defaultAccessCode = "0000";
@@ -47,7 +57,14 @@ const pendingCloudKeysStorageKey = "cles-pending-cloud-keys-v1";
 const dirtyKeySlotsStorageKey = "cles-dirty-key-slots-v1";
 const pendingKeySlotWritesStorageKey = "cles-pending-key-slot-writes-v1";
 const syncMetadataVersionStorageKey = "cles-sync-metadata-version-v1";
-const syncMetadataVersion = "20260911-5-fbvsgvdrdblxvmzutpjk";
+const supabaseProjectRef = (() => {
+  try {
+    return new URL(supabaseUrl).hostname.split(".")[0] || agencyId;
+  } catch {
+    return agencyId;
+  }
+})();
+const syncMetadataVersion = `20260911-5-${supabaseProjectRef}`;
 const cloudSyncHeartbeatStorageKey = "cles-cloud-sync-heartbeat-v1";
 const lastLocalEditStorageKey = "cles-last-local-edit-v1";
 const keySlotCloudSeparator = "::slot::";
@@ -78,10 +95,14 @@ const browserStorage = (() => {
   }
 })();
 
+function getScopedBrowserStorageKey(key) {
+  return `${browserStorageNamespace}${key}`;
+}
+
 function getRuntimeStorageValue(key) {
   if (runtimeStorageFallback.has(key)) return runtimeStorageFallback.get(key);
   try {
-    return browserStorage?.getItem(key) ?? null;
+    return browserStorage?.getItem(getScopedBrowserStorageKey(key)) ?? null;
   } catch {
     return null;
   }
@@ -91,13 +112,14 @@ function setRuntimeStorageValue(key, value) {
   const stringValue = String(value);
   runtimeStorageFallback.set(key, stringValue);
   try {
-    browserStorage?.setItem(key, stringValue);
+    browserStorage?.setItem(getScopedBrowserStorageKey(key), stringValue);
     return true;
   } catch (error) {
     if (isApplyingCloudState && browserStorage) {
       try {
-        browserStorage.removeItem(key);
-        browserStorage.setItem(key, stringValue);
+        const scopedKey = getScopedBrowserStorageKey(key);
+        browserStorage.removeItem(scopedKey);
+        browserStorage.setItem(scopedKey, stringValue);
         return true;
       } catch {
         // La copie Supabase reste disponible en mémoire pour cette session.
@@ -111,17 +133,51 @@ function setRuntimeStorageValue(key, value) {
 function removeRuntimeStorageValue(key) {
   runtimeStorageFallback.delete(key);
   try {
-    browserStorage?.removeItem(key);
+    browserStorage?.removeItem(getScopedBrowserStorageKey(key));
   } catch {}
 }
 
 function getRuntimeStorageKeys() {
   const keys = new Set(runtimeStorageFallback.keys());
   try {
-    Object.keys(browserStorage || {}).forEach((key) => keys.add(key));
+    Object.keys(browserStorage || {}).forEach((key) => {
+      if (key.startsWith(browserStorageNamespace)) keys.add(key.slice(browserStorageNamespace.length));
+    });
   } catch {}
   return [...keys];
 }
+
+function migrateLegacyBrowserStorage() {
+  if (!shouldMigrateLegacyStorage || !browserStorage) return;
+  const migrationMarker = getScopedBrowserStorageKey("legacy-storage-migrated-v1");
+  try {
+    if (browserStorage.getItem(migrationMarker) === "done") return;
+
+    Object.keys(browserStorage).forEach((legacyKey) => {
+      if (!legacyKey.startsWith("cles-") && legacyKey !== "quialakey-access-unlocked-v1") return;
+      const scopedKey = getScopedBrowserStorageKey(legacyKey);
+      if (browserStorage.getItem(scopedKey) !== null) {
+        browserStorage.removeItem(legacyKey);
+        return;
+      }
+
+      const legacyValue = browserStorage.getItem(legacyKey);
+      browserStorage.removeItem(legacyKey);
+      try {
+        browserStorage.setItem(scopedKey, legacyValue);
+      } catch {
+        try {
+          browserStorage.setItem(legacyKey, legacyValue);
+        } catch {}
+      }
+    });
+    browserStorage.setItem(migrationMarker, "done");
+  } catch (error) {
+    console.warn("Migration du stockage local incomplète", error.message);
+  }
+}
+
+migrateLegacyBrowserStorage();
 
 function escapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -149,7 +205,7 @@ function createReplacementId() {
 
 function getDefaultTableSettings() {
   return {
-    agencyName: "Agence",
+    agencyName: configuredAgencyName,
     categories: defaultCategoryLabels.map((label) => ({
       id: label,
       label,
@@ -335,14 +391,18 @@ function parseKeyLabelFromTitle(title) {
 }
 
 function createSupabaseClient() {
-  return createRestSupabaseClient(supabaseUrl, supabaseAnonKey);
+  if (!supabaseUrl || !supabasePublishableKey) {
+    console.warn("Configuration Supabase manquante pour cette agence.");
+    return null;
+  }
+  return createRestSupabaseClient(supabaseUrl, supabasePublishableKey);
 }
 
-function createRestSupabaseClient(projectUrl, anonKey) {
+function createRestSupabaseClient(projectUrl, publishableKey) {
   const restBaseUrl = `${projectUrl.replace(/\/$/, "")}/rest/v1`;
   const baseHeaders = {
-    apikey: anonKey,
-    Authorization: `Bearer ${anonKey}`,
+    apikey: publishableKey,
+    Authorization: `Bearer ${publishableKey}`,
   };
 
   class RestQuery {
@@ -1891,7 +1951,7 @@ function waitForKeySlotRetry(attempt) {
 function resetLegacySyncMetadataIfNeeded() {
   const previousVersion = getRuntimeStorageValue(syncMetadataVersionStorageKey) || "";
   if (previousVersion === syncMetadataVersion) return;
-  const isSameSupabaseProject = previousVersion.endsWith("-fbvsgvdrdblxvmzutpjk");
+  const isSameSupabaseProject = previousVersion.endsWith(`-${supabaseProjectRef}`);
 
   cloudRowVersions = new Map();
   cloudSyncTimers.forEach((timer) => clearTimeout(timer));

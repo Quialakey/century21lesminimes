@@ -1,0 +1,50 @@
+name: Deploy Quialakey agency
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [quialakey_release]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read agency configuration
+        uses: actions/checkout@v4
+        with:
+          path: deployment
+
+      - name: Download Quialakey core
+        uses: actions/checkout@v4
+        with:
+          repository: Quialakey/quialakey-core
+          ref: master
+          path: site
+
+      - name: Apply agency configuration
+        working-directory: site
+        run: node scripts/configure-agency.mjs ../deployment/agency.json .
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy site
+        id: deployment
+        uses: actions/deploy-pages@v4
