@@ -24,7 +24,7 @@ const supabaseUrl = "https://fbvsgvdrdblxvmzutpjk.supabase.co";
 const supabaseAnonKey =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidnNndmRyZGJseHZtenV0cGprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTMzMDcsImV4cCI6MjEwNDQ2OTMwN30.iuISscmFcGTGCDiFOA0XVkGCgTaSFo-vkVh9_t5odi0";
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260913-8";
+const appBuildVersion = "20260914-1";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = "cles-app-build-reload-v1";
 const appBuildVersionUrl = "app-version.json";
@@ -684,6 +684,8 @@ let lastAutomaticCloudRefreshAt = 0;
 let automaticCloudRefreshTimer = null;
 let cloudHeartbeatTimer = null;
 let directCloudFlushTimers = new Map();
+let isKeyWorkProtected = false;
+let hasDeferredCloudRefreshForKeyWork = false;
 let cloudInactivityTimer = null;
 let isCloudSleeping = false;
 let hasStartedCloudInactivityTracking = false;
@@ -777,6 +779,28 @@ function isTabletDevice() {
   const isIpad = /iPad/i.test(userAgent) || (platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const isAndroidTablet = /Android/i.test(userAgent) && !/Mobi|Mobile/i.test(userAgent);
   return isIpad || isAndroidTablet || /Tablet/i.test(userAgent);
+}
+
+function beginKeyWorkProtection() {
+  isKeyWorkProtected = true;
+}
+
+function deferCloudRefreshDuringKeyWork() {
+  if (!isKeyWorkProtected || !hasCompletedInitialCloudLoad) return false;
+  hasDeferredCloudRefreshForKeyWork = true;
+  return true;
+}
+
+function endKeyWorkProtection({ refresh = true } = {}) {
+  const wasProtected = isKeyWorkProtected;
+  const hadDeferredCloudRefresh = hasDeferredCloudRefreshForKeyWork;
+  isKeyWorkProtected = false;
+  hasDeferredCloudRefreshForKeyWork = false;
+  if (!refresh || (!wasProtected && !hadDeferredCloudRefresh) || !hasCompletedInitialCloudLoad) return;
+
+  setTimeout(() => {
+    requestAutomaticCloudRefresh({ force: true, immediate: true });
+  }, 0);
 }
 
 function getAutomaticCloudPollInterval() {
@@ -960,6 +984,7 @@ function queueStandaloneCloudRefresh(delay = 0) {
 
 function requestAutomaticCloudRefresh(options = {}) {
   if (!supabaseClient || isCloudSleeping || isAppInBackground()) return;
+  if (deferCloudRefreshDuringKeyWork()) return;
   const force = options.force !== false;
   const now = Date.now();
   const elapsed = now - lastAutomaticCloudRefreshAt;
@@ -2347,7 +2372,7 @@ function syncStorageKeyToCloud(storageKey, options = {}) {
         failedCloudSyncKeys.delete(storageKey);
         savePendingCloudKeys();
         saveCloudRowVersions();
-        refreshDataFromStorage({ keepSelection: true });
+        if (!deferCloudRefreshDuringKeyWork()) refreshDataFromStorage({ keepSelection: true });
         return;
       }
 
@@ -2572,6 +2597,7 @@ function closeKeyPanelAfterAction() {
   selectedArchiveRecord = null;
   selectedSetId = "main";
   resetKeyInfoEditUnlock(null);
+  endKeyWorkProtection();
   render();
 }
 
@@ -2619,6 +2645,7 @@ function subscribeToCloudChanges() {
       (payload) => {
         const storageKey = payload.new?.key || payload.old?.key || "";
         const slotStorageKey = getKeyStorageKeyFromSlotCloudKey(storageKey);
+        if ((getCloudBaseStorageKeys().includes(storageKey) || slotStorageKey) && deferCloudRefreshDuringKeyWork()) return;
         if (slotStorageKey && payload.new?.value && !hasPendingCloudRowChange(storageKey)) {
           isApplyingCloudState = true;
           try {
@@ -2650,6 +2677,7 @@ async function reloadCompleteCloudState() {
     loadKeySlotCloudRows(),
   ]);
   if (baseRowsError) throw baseRowsError;
+  if (deferCloudRefreshDuringKeyWork()) return false;
   if ((!Array.isArray(baseRows) || !baseRows.length) && !slotRows.length) {
     console.warn("Supabase full refresh returned no app state rows.");
     return false;
@@ -2687,6 +2715,7 @@ async function loadStorageFromCloud(options = {}) {
   const force = Boolean(options.force);
   if (!supabaseClient || isCloudSleeping || isAppInBackground()) return;
   if (isPhotoImporting) return;
+  if (deferCloudRefreshDuringKeyWork()) return;
   if (isCloudCheckRunning) {
     shouldReloadCloudAfterCurrentCheck = shouldReloadCloudAfterCurrentCheck || force;
     return;
@@ -2758,6 +2787,7 @@ async function loadStorageFromCloud(options = {}) {
       loadKeySlotCloudRows("key,updated_at"),
     ]);
     if (metadataError) throw metadataError;
+    if (deferCloudRefreshDuringKeyWork()) return;
     const metadata = [...(Array.isArray(baseMetadata) ? baseMetadata : []), ...slotMetadata];
     if (!Array.isArray(metadata)) return;
 
@@ -2806,6 +2836,7 @@ async function loadStorageFromCloud(options = {}) {
     if (!cloudOnlyChangedKeys.length && !deletedKeys.length) return;
 
     const changedRows = await loadCloudRowsByKeys(cloudOnlyChangedKeys);
+    if (deferCloudRefreshDuringKeyWork()) return;
 
     isApplyingCloudState = true;
     changedRows.forEach((row) => {
@@ -2945,6 +2976,7 @@ function closeSidePanels() {
 }
 
 function switchRegistry() {
+  endKeyWorkProtection();
   pendingNewKeyDraft = null;
   activeRegistry = activeRegistry === "location" ? "transaction" : "location";
   saveActiveRegistry();
@@ -3883,6 +3915,7 @@ async function moveKeyToSlot(sourceId, targetId, options = {}) {
   selectedArchiveRecord = null;
   selectedSetId = "main";
   resetKeyInfoEditUnlock(null);
+  endKeyWorkProtection();
   saveKeys();
   render();
   await syncCloudAfterAction();
@@ -3891,6 +3924,7 @@ async function moveKeyToSlot(sourceId, targetId, options = {}) {
 async function transferSelectedKeyToOtherRegistry() {
   if (selectedArchiveRecord) return;
   captureActiveKeyInfoDraft();
+  endKeyWorkProtection({ refresh: false });
   await loadStorageFromCloud({ force: true });
 
   const sourceRegistry = activeRegistry;
@@ -4970,6 +5004,7 @@ function openHistoryKey(entryData) {
   selectedArchiveRecord = null;
   selectedId = key.id;
   selectedSetId = key.sets.some((set) => set.id === setId) ? setId : key.sets[0]?.id || "main";
+  beginKeyWorkProtection();
   resetKeyInfoEditUnlock(key);
   render();
 }
@@ -6335,6 +6370,7 @@ function openArchivedKeyRecord(record) {
   selectedArchiveRecord = record;
   selectedId = `archive-${record.id}`;
   selectedSetId = record.key.sets?.[0]?.id || "main";
+  beginKeyWorkProtection();
   resetKeyInfoEditUnlock(record.key);
   clearTimeout(detailCloseTimer);
   clearTimeout(archivesCloseTimer);
@@ -6707,6 +6743,7 @@ function renderGrid() {
           selectedArchiveRecord = null;
           selectedId = key.id;
           selectedSetId = key.sets[0]?.id || "main";
+          beginKeyWorkProtection();
           if (!isKeyFilled(key) && !isPendingNewKeyDraft(key.id)) beginPendingNewKeyDraft(key);
           else pendingNewKeyDraft = null;
           resetKeyInfoEditUnlock(key);
@@ -8768,6 +8805,7 @@ closePanelBtn.addEventListener("click", () => {
   selectedId = null;
   selectedArchiveRecord = null;
   resetKeyInfoEditUnlock(null);
+  endKeyWorkProtection();
   render();
 });
 document.addEventListener("pointerdown", (event) => {
@@ -8783,9 +8821,13 @@ document.addEventListener("pointerdown", (event) => {
   selectedArchiveRecord = null;
   resetKeyInfoEditUnlock(null);
   clearSignature();
+  endKeyWorkProtection();
   render();
 });
-form.addEventListener("focusin", () => clearTimeout(detailCloseTimer));
+form.addEventListener("focusin", () => {
+  beginKeyWorkProtection();
+  clearTimeout(detailCloseTimer);
+});
 detailPanel.addEventListener("mouseenter", () => {
   isDetailPanelHovered = true;
   clearTimeout(detailCloseTimer);
