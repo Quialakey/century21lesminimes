@@ -2561,6 +2561,9 @@ body.is-moving-key .photo-hover {
 .photo-set-select {
   position: absolute;
   z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   top: 4px;
   left: 4px;
   max-width: calc(100% - 8px);
@@ -2574,11 +2577,17 @@ body.is-moving-key .photo-hover {
   white-space: nowrap;
 }
 
-.photo-set-select::after {
-  content: "›";
-  margin-left: 4px;
+.photo-set-pointer-icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
   color: var(--blue);
-  font-size: 0.9em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
 }
 
 @media (hover: hover) and (pointer: fine) {

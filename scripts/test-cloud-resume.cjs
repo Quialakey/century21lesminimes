@@ -729,7 +729,8 @@ async function main() {
             titleStyle: title.tagName === "BUTTON" && getComputedStyle(title).fontSize === "14.3px" &&
               titleRect.height >= 21 && titleRect.height <= 24 &&
               getComputedStyle(title).backgroundColor === "rgba(238, 241, 239, 0.78)",
-            titleHint: getComputedStyle(title, "::after").content === '"›"' &&
+            titleHint: title.querySelector(".photo-set-pointer-icon path")?.getAttribute("d")?.startsWith("M4.037 4.688") &&
+              title.querySelector(".photo-set-pointer-icon")?.getAttribute("aria-hidden") === "true" &&
               title.title === `Sélectionner ${key.sets[0].label} pour les mouvements`,
             actionsFit: actions.every((action) => {
               const rect = action.getBoundingClientRect();
@@ -788,7 +789,7 @@ async function main() {
                 card.scrollHeight <= card.clientHeight && previewRect.height >= 100 &&
                 titleRect.left >= previewRect.left && titleRect.right <= previewRect.right &&
                 titleRect.top >= previewRect.top && titleRect.bottom <= previewRect.bottom &&
-                getComputedStyle(title, "::after").content === '"›"' &&
+                title.querySelector(".photo-set-pointer-icon path")?.getAttribute("d")?.startsWith("M4.037 4.688") &&
                 getComputedStyle(title).fontSize === "14.3px" &&
                 titleRect.height >= 21 && titleRect.height <= 24 &&
                 buttons.length === 3 && buttons.every((button) => {
