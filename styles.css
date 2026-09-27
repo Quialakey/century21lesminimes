@@ -2461,12 +2461,17 @@ body.is-moving-key .photo-hover {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.key-set-photo-list.is-four-set {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
 .key-set-photo-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(150px, 0.72fr);
   grid-template-rows: minmax(0, 1fr);
   gap: 6px;
-  height: 165px;
+  height: 140px;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2508,6 +2513,27 @@ body.is-moving-key .photo-hover {
 .key-set-photo-list.is-three-set .photo-delete-button {
   padding-inline: 2px;
   font-size: 9px;
+}
+
+.key-set-photo-list.is-four-set .key-set-photo-card {
+  padding: 3px;
+}
+
+.key-set-photo-list.is-four-set .photo-button,
+.key-set-photo-list.is-four-set .photo-delete-button {
+  padding-inline: 1px;
+  font-size: 9px;
+}
+
+.key-set-photo-list.is-four-set .photo-set-select {
+  gap: 2px;
+  padding: 2px 3px;
+  font-size: 11px;
+}
+
+.key-set-photo-list.is-four-set .photo-set-pointer-icon {
+  width: 12px;
+  height: 12px;
 }
 
 .key-set-photo-card.is-selected {
@@ -2581,10 +2607,10 @@ body.is-moving-key .photo-hover {
   width: 14px;
   height: 14px;
   flex: none;
-  color: var(--blue);
+  color: #000;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 2.2;
   stroke-linecap: round;
   stroke-linejoin: round;
   pointer-events: none;

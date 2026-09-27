@@ -732,6 +732,8 @@ async function main() {
             titleHint: title.querySelectorAll(".photo-set-pointer-icon path").length === 2 &&
               title.querySelector(".photo-set-pointer-icon path")?.getAttribute("d") === "M12.586 12.586 19 19" &&
               getComputedStyle(title.querySelector(".photo-set-pointer-icon")).width === "14px" &&
+              getComputedStyle(title.querySelector(".photo-set-pointer-icon")).color === "rgb(0, 0, 0)" &&
+              parseFloat(getComputedStyle(title.querySelector(".photo-set-pointer-icon")).strokeWidth) === 2.2 &&
               title.querySelector(".photo-set-pointer-icon")?.getAttribute("aria-hidden") === "true" &&
               title.title === `Sélectionner ${key.sets[0].label} pour les mouvements`,
             actionsFit: actions.every((action) => {
@@ -745,7 +747,7 @@ async function main() {
           };
         }, withPhoto);
         assert.deepEqual(layout, {
-          height: 165,
+          height: 140,
           titleInsidePreview: true,
           titleTopLeft: true,
           singleSelectedOutline: true,
@@ -778,9 +780,8 @@ async function main() {
               cards.slice(1).every((card) => getComputedStyle(card).outlineStyle === "none"),
             firstRowAligned: Math.abs(cardRects[0].top - cardRects[1].top) < 1,
             secondColumnRight: cardRects[1].left > cardRects[0].right,
-            thirdInFirstRow: count !== 3 || (Math.abs(cardRects[2].top - cardRects[0].top) < 1 && cardRects[2].left > cardRects[1].right),
-            secondRowAligned: count < 4 || (Math.abs(cardRects[2].left - cardRects[0].left) < 1 && cardRects[2].top > cardRects[0].bottom),
-            fourthAligned: count < 4 || (Math.abs(cardRects[3].left - cardRects[1].left) < 1 && Math.abs(cardRects[3].top - cardRects[2].top) < 1),
+            thirdInFirstRow: count < 3 || (Math.abs(cardRects[2].top - cardRects[0].top) < 1 && cardRects[2].left > cardRects[1].right),
+            fourthInFirstRow: count < 4 || (Math.abs(cardRects[3].top - cardRects[0].top) < 1 && cardRects[3].left > cardRects[2].right),
             cardsFit: cards.every((card, index) => {
               const preview = card.querySelector(".photo-preview");
               const previewRect = preview.getBoundingClientRect();
@@ -791,11 +792,14 @@ async function main() {
                 card.scrollHeight <= card.clientHeight && previewRect.height >= 100 &&
                 titleRect.left >= previewRect.left && titleRect.right <= previewRect.right &&
                 titleRect.top >= previewRect.top && titleRect.bottom <= previewRect.bottom &&
+                title.scrollWidth <= title.clientWidth &&
                 title.querySelectorAll(".photo-set-pointer-icon path").length === 2 &&
                 title.querySelector(".photo-set-pointer-icon path")?.getAttribute("d") === "M12.586 12.586 19 19" &&
-                getComputedStyle(title.querySelector(".photo-set-pointer-icon")).width === "14px" &&
-                getComputedStyle(title).fontSize === "14.3px" &&
-                titleRect.height >= 21 && titleRect.height <= 24 &&
+                getComputedStyle(title.querySelector(".photo-set-pointer-icon")).width === (count === 4 ? "12px" : "14px") &&
+                getComputedStyle(title.querySelector(".photo-set-pointer-icon")).color === "rgb(0, 0, 0)" &&
+                parseFloat(getComputedStyle(title.querySelector(".photo-set-pointer-icon")).strokeWidth) === 2.2 &&
+                getComputedStyle(title).fontSize === (count === 4 ? "11px" : "14.3px") &&
+                titleRect.height >= (count === 4 ? 15 : 21) && titleRect.height <= (count === 4 ? 21 : 24) &&
                 buttons.length === 3 && buttons.every((button) => {
                   const rect = button.getBoundingClientRect();
                   const text = button.querySelector("span");
@@ -809,21 +813,44 @@ async function main() {
               });
             }),
             buttonFonts: cards.every((card) => [...card.querySelectorAll(".photo-actions > *")]
-              .every((button) => getComputedStyle(button).fontSize === (count === 3 ? "9px" : "11px"))),
+              .every((button) => getComputedStyle(button).fontSize === (count >= 3 ? "9px" : "11px"))),
+            buttonLabels: cards.every((card) => {
+              const labels = [...card.querySelectorAll(".photo-actions > *")].map((button) => button.textContent.trim());
+              return JSON.stringify(labels) === JSON.stringify(count === 4
+                ? ["Reprendre ph.", "Importer ph.", "Supprimer ph."]
+                : ["Reprendre une photo", "Importer une photo", "Supprimer la photo"]);
+            }),
           };
         }, setCount);
         assert.deepEqual(layout, {
-          columns: setCount === 3 ? 3 : 2,
+          columns: setCount,
           selectedOutline: true,
           firstRowAligned: true,
           secondColumnRight: true,
           thirdInFirstRow: true,
-          secondRowAligned: true,
-          fourthAligned: true,
+          fourthInFirstRow: true,
           cardsFit: true,
           buttonFonts: true,
+          buttonLabels: true,
         }, `${setCount} photo cards at ${width}px`);
       }
+      const fourWithoutPhoto = await page.evaluate(() => {
+        const key = getSelectedKey();
+        renderKeySetPhotos({
+          ...key,
+          sets: Array.from({ length: 4 }, (_, index) => ({
+            ...key.sets[0], id: index === 0 ? selectedSetId : `empty-photo-${index}`,
+            label: `Jeu ${index + 1}`, photo: "",
+          })),
+        });
+        return [...keySetPhotoList.querySelectorAll(".key-set-photo-card")].every((card) => {
+          const actions = [...card.querySelectorAll(".photo-actions > *")];
+          return actions.length === 2 && actions[0].textContent.trim() === "Prendre ph." &&
+            actions[1].textContent.trim() === "Importer ph." &&
+            actions.every((action) => action.scrollWidth <= action.clientWidth);
+        });
+      });
+      assert.equal(fourWithoutPhoto, true, `Empty photo actions at ${width}px`);
       const photoStatuses = await page.evaluate(() => {
         const key = getSelectedKey();
         const states = ["available", "reserved", "out"];

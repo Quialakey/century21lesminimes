@@ -35,7 +35,7 @@ const browserStorageNamespace = `quialakey:${agencyId}:`;
 const supabaseUrl = String(rawAgencyConfig.supabaseUrl || "").trim();
 const supabasePublishableKey = String(rawAgencyConfig.supabasePublishableKey || "").trim();
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260927-5";
+const appBuildVersion = "20260927-6";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = `${browserStorageNamespace}cles-app-build-reload-v1`;
 const appBuildVersionUrl = "app-version.json";
@@ -7795,6 +7795,7 @@ function renderKeySetPhotos(key) {
   keySetPhotoList.innerHTML = "";
   keySetPhotoList.classList.toggle("is-multi-set", key.sets.length > 1);
   keySetPhotoList.classList.toggle("is-three-set", key.sets.length === 3);
+  keySetPhotoList.classList.toggle("is-four-set", key.sets.length === 4);
   const isArchiveView = Boolean(selectedArchiveRecord);
   const canEditPhotos = !isArchiveView || isSelectedCompromiseEditable();
   const isFilled = isKeyFilled(key);
@@ -7856,7 +7857,9 @@ function renderKeySetPhotos(key) {
     }
     actions.className = "photo-actions";
     cameraButton.className = "photo-button";
-    cameraButtonText.textContent = set.photo ? "Reprendre une photo" : "Prendre une photo";
+    const cameraLabel = set.photo ? "Reprendre une photo" : "Prendre une photo";
+    cameraButtonText.textContent = key.sets.length === 4 ? (set.photo ? "Reprendre ph." : "Prendre ph.") : cameraLabel;
+    cameraButton.title = cameraLabel;
     cameraInput.type = "file";
     cameraInput.accept = "image/*";
     cameraInput.setAttribute("capture", "environment");
@@ -7866,7 +7869,8 @@ function renderKeySetPhotos(key) {
     cameraInput.addEventListener("cancel", finishPhotoImport);
 
     importButton.className = "photo-button photo-import-button";
-    importButtonText.textContent = "Importer une photo";
+    importButtonText.textContent = key.sets.length === 4 ? "Importer ph." : "Importer une photo";
+    importButton.title = "Importer une photo";
     importInput.type = "file";
     importInput.accept = "image/*";
     importInput.dataset.setId = set.id;
@@ -7882,7 +7886,8 @@ function renderKeySetPhotos(key) {
       const deleteButton = document.createElement("button");
       deleteButton.className = "photo-delete-button";
       deleteButton.type = "button";
-      deleteButton.textContent = "Supprimer la photo";
+      deleteButton.textContent = key.sets.length === 4 ? "Supprimer ph." : "Supprimer la photo";
+      deleteButton.title = "Supprimer la photo";
       deleteButton.addEventListener("click", () => {
         const confirmed = confirm(`Supprimer la photo du ${set.label} ?`);
         if (!confirmed) return;
