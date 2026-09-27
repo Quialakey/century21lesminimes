@@ -2578,8 +2578,8 @@ body.is-moving-key .photo-hover {
 }
 
 .photo-set-pointer-icon {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   flex: none;
   color: var(--blue);
   fill: none;

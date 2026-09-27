@@ -35,7 +35,7 @@ const browserStorageNamespace = `quialakey:${agencyId}:`;
 const supabaseUrl = String(rawAgencyConfig.supabaseUrl || "").trim();
 const supabasePublishableKey = String(rawAgencyConfig.supabasePublishableKey || "").trim();
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260927-4";
+const appBuildVersion = "20260927-5";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = `${browserStorageNamespace}cles-app-build-reload-v1`;
 const appBuildVersionUrl = "app-version.json";
@@ -7819,12 +7819,14 @@ function renderKeySetPhotos(key) {
     title.setAttribute("aria-label", `S\u00e9lectionner ${set.label} pour les mouvements`);
     title.title = `S\u00e9lectionner ${set.label} pour les mouvements`;
     const pointerIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const pointerTail = document.createElementNS("http://www.w3.org/2000/svg", "path");
     const pointerPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
     pointerIcon.classList.add("photo-set-pointer-icon");
     pointerIcon.setAttribute("viewBox", "0 0 24 24");
     pointerIcon.setAttribute("aria-hidden", "true");
-    pointerPath.setAttribute("d", "M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z");
-    pointerIcon.append(pointerPath);
+    pointerTail.setAttribute("d", "M12.586 12.586 19 19");
+    pointerPath.setAttribute("d", "M3.688 3.037a.497.497 0 0 0-.651.651l6.5 15.999a.501.501 0 0 0 .947-.062l1.569-6.083a2 2 0 0 1 1.448-1.479l6.124-1.579a.5.5 0 0 0 .063-.947z");
+    pointerIcon.append(pointerTail, pointerPath);
     title.append(pointerIcon);
     title.addEventListener("click", () => {
       if (set.id === selectedSetId) return;

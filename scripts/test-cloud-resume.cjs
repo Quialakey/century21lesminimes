@@ -729,7 +729,9 @@ async function main() {
             titleStyle: title.tagName === "BUTTON" && getComputedStyle(title).fontSize === "14.3px" &&
               titleRect.height >= 21 && titleRect.height <= 24 &&
               getComputedStyle(title).backgroundColor === "rgba(238, 241, 239, 0.78)",
-            titleHint: title.querySelector(".photo-set-pointer-icon path")?.getAttribute("d")?.startsWith("M4.037 4.688") &&
+            titleHint: title.querySelectorAll(".photo-set-pointer-icon path").length === 2 &&
+              title.querySelector(".photo-set-pointer-icon path")?.getAttribute("d") === "M12.586 12.586 19 19" &&
+              getComputedStyle(title.querySelector(".photo-set-pointer-icon")).width === "14px" &&
               title.querySelector(".photo-set-pointer-icon")?.getAttribute("aria-hidden") === "true" &&
               title.title === `Sélectionner ${key.sets[0].label} pour les mouvements`,
             actionsFit: actions.every((action) => {
@@ -789,7 +791,9 @@ async function main() {
                 card.scrollHeight <= card.clientHeight && previewRect.height >= 100 &&
                 titleRect.left >= previewRect.left && titleRect.right <= previewRect.right &&
                 titleRect.top >= previewRect.top && titleRect.bottom <= previewRect.bottom &&
-                title.querySelector(".photo-set-pointer-icon path")?.getAttribute("d")?.startsWith("M4.037 4.688") &&
+                title.querySelectorAll(".photo-set-pointer-icon path").length === 2 &&
+                title.querySelector(".photo-set-pointer-icon path")?.getAttribute("d") === "M12.586 12.586 19 19" &&
+                getComputedStyle(title.querySelector(".photo-set-pointer-icon")).width === "14px" &&
                 getComputedStyle(title).fontSize === "14.3px" &&
                 titleRect.height >= 21 && titleRect.height <= 24 &&
                 buttons.length === 3 && buttons.every((button) => {
