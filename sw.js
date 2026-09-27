@@ -1,6 +1,6 @@
 const workerUrl = new URL(self.location.href);
 const agencyCacheId = String(workerUrl.searchParams.get("agency") || "default-agency").replace(/[^a-z0-9-]/gi, "-");
-const appVersion = "20260927-1";
+const appVersion = "20260927-2";
 const runtimeCachePrefix = `quialakey-runtime-${agencyCacheId}-`;
 const runtimeCacheName = `${runtimeCachePrefix}${appVersion}`;
 const workerBaseUrl = new URL("./", self.location.href);
@@ -13,6 +13,7 @@ const coreAssetPaths = [
   `agency-config.js?v=${appVersion}`,
   `manifest.webmanifest?v=${appVersion}`,
   "quialakey-logo-banniere-20260907-2.jpg",
+  "quialakey-loading-banner-20260927.webp",
   "quialakey-icon-20260908-1.png",
 ];
 

@@ -13,7 +13,7 @@ async function main() {
     if (!file.startsWith(root + path.sep)) return response.writeHead(403).end();
     try {
       const contents = await fs.readFile(file);
-      const contentType = { ".js": "text/javascript", ".html": "text/html", ".css": "text/css", ".json": "application/json" }[path.extname(file)];
+      const contentType = { ".js": "text/javascript", ".html": "text/html", ".css": "text/css", ".json": "application/json", ".webp": "image/webp" }[path.extname(file)];
       response.writeHead(200, { "Content-Type": contentType || "application/octet-stream" });
       response.end(contents);
     } catch {
@@ -62,6 +62,8 @@ async function main() {
 
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     assert.equal(await page.locator("body").evaluate((body) => body.classList.contains("is-access-loading")), true);
+    assert.equal(await page.locator("#startupLoading img").getAttribute("src"), "quialakey-loading-banner-20260927.webp");
+    assert.equal(await page.locator("#startupLoading img").evaluate((image) => image.complete && image.naturalWidth > 0), true);
     await page.waitForFunction(() => hasCompletedInitialCloudLoad, null, { timeout: 15000 });
     await page.waitForFunction(() => !document.body.classList.contains("is-access-loading"));
     assert.equal(await page.evaluate(() => keys.find((key) => key.id === "T3-1")?.sets[0].status), "out");
