@@ -729,6 +729,8 @@ async function main() {
             titleStyle: title.tagName === "BUTTON" && getComputedStyle(title).fontSize === "14.3px" &&
               titleRect.height >= 21 && titleRect.height <= 24 &&
               getComputedStyle(title).backgroundColor === "rgba(238, 241, 239, 0.78)",
+            titleHint: getComputedStyle(title, "::after").content === '"›"' &&
+              title.title === `Sélectionner ${key.sets[0].label} pour les mouvements`,
             actionsFit: actions.every((action) => {
               const rect = action.getBoundingClientRect();
               return rect.top >= cardRect.top && rect.bottom <= cardRect.bottom;
@@ -745,6 +747,7 @@ async function main() {
           titleTopLeft: true,
           singleSelectedOutline: true,
           titleStyle: true,
+          titleHint: true,
           actionsFit: true,
           noOverflow: true,
           actionCount: withPhoto ? 3 : 2,
@@ -785,6 +788,7 @@ async function main() {
                 card.scrollHeight <= card.clientHeight && previewRect.height >= 100 &&
                 titleRect.left >= previewRect.left && titleRect.right <= previewRect.right &&
                 titleRect.top >= previewRect.top && titleRect.bottom <= previewRect.bottom &&
+                getComputedStyle(title, "::after").content === '"›"' &&
                 getComputedStyle(title).fontSize === "14.3px" &&
                 titleRect.height >= 21 && titleRect.height <= 24 &&
                 buttons.length === 3 && buttons.every((button) => {

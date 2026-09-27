@@ -2574,6 +2574,13 @@ body.is-moving-key .photo-hover {
   white-space: nowrap;
 }
 
+.photo-set-select::after {
+  content: "›";
+  margin-left: 4px;
+  color: var(--blue);
+  font-size: 0.9em;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .photo-set-select {
     padding: 3px 5px;

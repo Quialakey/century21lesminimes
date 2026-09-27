@@ -35,7 +35,7 @@ const browserStorageNamespace = `quialakey:${agencyId}:`;
 const supabaseUrl = String(rawAgencyConfig.supabaseUrl || "").trim();
 const supabasePublishableKey = String(rawAgencyConfig.supabasePublishableKey || "").trim();
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260927-2";
+const appBuildVersion = "20260927-3";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = `${browserStorageNamespace}cles-app-build-reload-v1`;
 const appBuildVersionUrl = "app-version.json";
@@ -7817,6 +7817,7 @@ function renderKeySetPhotos(key) {
     title.className = "photo-set-select";
     title.textContent = set.label;
     title.setAttribute("aria-label", `S\u00e9lectionner ${set.label} pour les mouvements`);
+    title.title = `S\u00e9lectionner ${set.label} pour les mouvements`;
     title.addEventListener("click", () => {
       if (set.id === selectedSetId) return;
       keySetSelect.value = set.id;
