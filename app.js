@@ -35,7 +35,7 @@ const browserStorageNamespace = `quialakey:${agencyId}:`;
 const supabaseUrl = String(rawAgencyConfig.supabaseUrl || "").trim();
 const supabasePublishableKey = String(rawAgencyConfig.supabasePublishableKey || "").trim();
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260927-6";
+const appBuildVersion = "20260927-7";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = `${browserStorageNamespace}cles-app-build-reload-v1`;
 const appBuildVersionUrl = "app-version.json";
@@ -7227,7 +7227,9 @@ function renderArchiveList(list, reason, emptyText, options = {}) {
       return normalizeArchiveSearchText(searchableText).includes(archiveQuery);
     })
     .sort((first, second) => {
-      if (!options.sortByCompromiseDate) return 0;
+      if (!options.sortByCompromiseDate) {
+        return parseHistoryTimestamp(second.archivedAt) - parseHistoryTimestamp(first.archivedAt);
+      }
       return String(first.compromiseSignedAt || first.archivedAt).localeCompare(
         String(second.compromiseSignedAt || second.archivedAt),
       );

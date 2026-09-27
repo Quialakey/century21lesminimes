@@ -77,6 +77,62 @@ async function main() {
     assert.equal(indexedStorageReady, true);
     assert.equal(await page.locator("#keyForm").evaluate((element) => element.tagName), "DIV");
     assert.equal(await page.locator("#propertyInput").evaluate((element) => element.closest("form")), null);
+    const archiveOrder = await page.evaluate(() => {
+      const originalArchives = archives;
+      const originalRegistry = activeRegistry;
+      const originalQuery = archiveSearchInput.value;
+      const dates = ["2026-09-01T12:00:00Z", "2026-09-03T12:00:00Z", "2026-09-02T12:00:00Z"];
+      const owners = ["OLDER", "NEWER", "MIDDLE"];
+      const labels = (list) => [...list.querySelectorAll("li strong")]
+        .map((title) => title.textContent.match(/OLDER|NEWER|MIDDLE/)?.[0]);
+      try {
+        archiveSearchInput.value = "";
+        archives = ["authenticated", "rented", "removed"].flatMap((reason) =>
+          dates.map((archivedAt, index) => ({
+            id: `${reason}-${index}`,
+            reason,
+            archivedAt,
+            compromiseSignedAt: archivedAt,
+            key: {
+              id: `T3-${index + 1}`,
+              category: "T3",
+              number: index + 1,
+              owner: owners[index],
+              property: "Adresse test",
+              sets: [{ id: "main", label: "Jeu 1", status: "available", history: [], reservations: [] }],
+            },
+          }))
+        );
+        activeRegistry = "transaction";
+        renderArchivesPanel();
+        renderCompromisesPanel();
+        const transaction = {
+          sold: labels(authenticatedList),
+          archived: labels(removedList),
+          compromises: labels(compromisesList),
+        };
+        activeRegistry = "location";
+        renderArchivesPanel();
+        return { transaction, location: { rented: labels(rentedList), archived: labels(removedList) } };
+      } finally {
+        archives = originalArchives;
+        activeRegistry = originalRegistry;
+        archiveSearchInput.value = originalQuery;
+        renderArchivesPanel();
+        renderCompromisesPanel();
+      }
+    });
+    assert.deepEqual(archiveOrder, {
+      transaction: {
+        sold: ["NEWER", "MIDDLE", "OLDER"],
+        archived: ["NEWER", "MIDDLE", "OLDER"],
+        compromises: ["OLDER", "MIDDLE", "NEWER"],
+      },
+      location: {
+        rented: ["NEWER", "MIDDLE", "OLDER"],
+        archived: ["NEWER", "MIDDLE", "OLDER"],
+      },
+    });
     const reservationHeadings = await page.evaluate(() => {
       const originalKeys = keys;
       const originalSelectedId = selectedId;
