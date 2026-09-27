@@ -169,19 +169,31 @@ async function main() {
       ["Préciser le retour", "Annulation"],
       ["Rentré", "Annulation"],
     ]);
-    for (const [answer, expected] of [["yes", true], ["no", false]]) {
-      const result = page.evaluate(() => promptReservationReturn());
-      const button = page.locator(`.reservation-return-dialog button[value="${answer}"]`);
-      const colors = await button.evaluate((element) => {
-        const style = getComputedStyle(element);
-        return { background: style.backgroundColor, border: style.borderTopColor };
-      });
-      assert.deepEqual(colors, expected
-        ? { background: "rgb(191, 232, 205)", border: "rgb(61, 143, 94)" }
-        : { background: "rgb(241, 199, 194)", border: "rgb(185, 76, 67)" });
-      await button.click();
-      assert.equal(await result, expected);
+    const reservationChoiceViewport = page.viewportSize();
+    for (const [width, colorScheme] of [[390, "dark"], [820, "dark"], [1280, "light"]]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.emulateMedia({ colorScheme });
+      for (const [answer, expected] of [["yes", true], ["no", false]]) {
+        const result = page.evaluate(() => promptReservationReturn());
+        const button = page.locator(`.reservation-return-dialog button[value="${answer}"]`);
+        const colors = await button.evaluate((element) => {
+          const style = getComputedStyle(element);
+          return {
+            background: style.backgroundColor,
+            border: style.borderTopColor,
+            text: style.color,
+            webkitText: style.webkitTextFillColor,
+          };
+        });
+        assert.deepEqual(colors, expected
+          ? { background: "rgb(191, 232, 205)", border: "rgb(61, 143, 94)", text: "rgb(0, 0, 0)", webkitText: "rgb(0, 0, 0)" }
+          : { background: "rgb(241, 199, 194)", border: "rgb(185, 76, 67)", text: "rgb(0, 0, 0)", webkitText: "rgb(0, 0, 0)" });
+        await button.click();
+        assert.equal(await result, expected);
+      }
     }
+    await page.setViewportSize(reservationChoiceViewport);
+    await page.emulateMedia({ colorScheme: "light" });
     const savedReturnDecisions = await page.evaluate(async () => {
       const originalSelectedId = selectedId;
       const originalActorCheck = ensureMovementActor;
