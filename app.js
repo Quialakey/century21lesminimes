@@ -35,7 +35,7 @@ const browserStorageNamespace = `quialakey:${agencyId}:`;
 const supabaseUrl = String(rawAgencyConfig.supabaseUrl || "").trim();
 const supabasePublishableKey = String(rawAgencyConfig.supabasePublishableKey || "").trim();
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260927-7";
+const appBuildVersion = "20260928-1";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = `${browserStorageNamespace}cles-app-build-reload-v1`;
 const appBuildVersionUrl = "app-version.json";
@@ -94,6 +94,7 @@ const automaticBackupHour = 12;
 const automaticBackupMinute = 0;
 const cloudPollIntervalMs = 900;
 const mobileCloudPollIntervalMs = 900;
+const cloudRealtimeSafetyPollIntervalMs = 15 * 1000;
 const cloudSafetyRefreshIntervalMs = 10 * 1000;
 const fullCloudRefreshIntervalMs = 60 * 1000;
 const cloudInteractionRefreshThrottleMs = 700;
@@ -923,6 +924,13 @@ let lastSlotCloudSeenAt = "";
 let lastAutomaticCloudRefreshAt = 0;
 let automaticCloudRefreshTimer = null;
 let cloudHeartbeatTimer = null;
+let cloudRealtimeClient = null;
+let cloudRealtimeChannel = null;
+let cloudRealtimeSubscriptionPromise = null;
+let cloudRealtimeLibraryPromise = null;
+let cloudRealtimeSubscriptionGeneration = 0;
+let isCloudRealtimeSubscribed = false;
+let lastCloudHeartbeatPollAt = 0;
 let directCloudFlushTimers = new Map();
 let isKeyWorkProtected = false;
 let hasDeferredCloudRefreshForKeyWork = false;
@@ -1061,6 +1069,7 @@ function clearScheduledCloudWorkForSleep() {
 }
 
 function pauseCloudWorkWhileBackgrounded() {
+  stopCloudChangeSubscription();
   getPendingCloudSyncKeys().forEach((storageKey) => failedCloudSyncKeys.add(storageKey));
   clearScheduledCloudWorkForSleep();
   savePendingCloudKeys();
@@ -1076,6 +1085,7 @@ function setCloudSleepOverlayVisible(visible) {
 }
 
 function enterCloudSleep() {
+  stopCloudChangeSubscription();
   if (isCloudSleeping) {
     setCloudSleepOverlayVisible(true);
     return;
@@ -1146,6 +1156,7 @@ async function resumeCloudSyncFromInactivity() {
       cloudSleepOverlay?.classList.remove("is-awaiting-cloud");
       if (cloudSleepOverlay) cloudSleepOverlay.querySelector("span").textContent = "Tableau en veille";
       scheduleCloudSleep();
+      void subscribeToCloudChanges();
       queueWakeCloudRefreshes();
       void ensureMissedAutomaticBackupOnOpen();
     }
@@ -1255,7 +1266,10 @@ function refreshCloudAfterForeground() {
     return;
   }
 
-  if (!enforceCloudSleepAfterInactivity()) queueWakeCloudRefreshes();
+  if (!enforceCloudSleepAfterInactivity()) {
+    void subscribeToCloudChanges();
+    queueWakeCloudRefreshes();
+  }
 }
 
 function queueStandaloneCloudRefresh(delay = 0) {
@@ -1296,7 +1310,10 @@ function queueWakeCloudRefreshes() {
 
 function startAutomaticCloudRefreshLoop() {
   setInterval(() => {
-    checkCloudSyncHeartbeat();
+    const now = Date.now();
+    if (isCloudRealtimeSubscribed && now - lastCloudHeartbeatPollAt < cloudRealtimeSafetyPollIntervalMs) return;
+    lastCloudHeartbeatPollAt = now;
+    void checkCloudSyncHeartbeat();
   }, getAutomaticCloudPollInterval());
   setInterval(() => {
     requestAutomaticCloudRefresh({ force: true });
@@ -3150,35 +3167,71 @@ async function finishKeyControlAction(keyId, options = {}) {
   }
 }
 
-function subscribeToCloudChanges() {
-  if (!supabaseClient?.channel) return;
-  supabaseClient
-    .channel("cles-app-state-sync")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "app_state" },
-      (payload) => {
-        if (isResettingTableData) return;
-        const storageKey = payload.new?.key || payload.old?.key || "";
-        const slotStorageKey = getKeyStorageKeyFromSlotCloudKey(storageKey);
-        if ((getCloudBaseStorageKeys().includes(storageKey) || slotStorageKey) && deferCloudRefreshDuringKeyWork()) return;
-        if (slotStorageKey && payload.new?.value && !hasPendingCloudRowChange(storageKey)) {
-          isApplyingCloudState = true;
-          try {
-            saveKeySlotCloudRow(payload.new);
-            rememberSlotCloudSeenAt(payload.new);
-            cloudRowVersions.set(storageKey, payload.new.updated_at || "");
-            saveCloudRowVersions();
-            refreshDataFromStorage({ keepSelection: true });
-          } finally {
-            isApplyingCloudState = false;
-          }
-          return;
-        }
-        if (getCloudBaseStorageKeys().includes(storageKey) || slotStorageKey) loadStorageFromCloud({ force: true });
-      },
-    )
-    .subscribe();
+function loadCloudRealtimeLibrary() {
+  if (window.supabase?.createClient) return Promise.resolve(window.supabase);
+  if (cloudRealtimeLibraryPromise) return cloudRealtimeLibraryPromise;
+  cloudRealtimeLibraryPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = `vendor/supabase-2.110.8.min.js?v=${appBuildVersion}`;
+    script.onload = () => window.supabase?.createClient
+      ? resolve(window.supabase)
+      : reject(new Error("Module Realtime indisponible."));
+    script.onerror = () => reject(new Error("Chargement du module Realtime impossible."));
+    document.head.append(script);
+  }).catch((error) => {
+    cloudRealtimeLibraryPromise = null;
+    throw error;
+  });
+  return cloudRealtimeLibraryPromise;
+}
+
+function stopCloudChangeSubscription() {
+  cloudRealtimeSubscriptionGeneration += 1;
+  isCloudRealtimeSubscribed = false;
+  cloudRealtimeSubscriptionPromise = null;
+  const channel = cloudRealtimeChannel;
+  cloudRealtimeChannel = null;
+  if (channel) {
+    void cloudRealtimeClient.removeChannel(channel).catch((error) =>
+      console.warn("Supabase Realtime disconnect failed", error.message));
+  }
+}
+
+async function subscribeToCloudChanges() {
+  if (!supabaseClient || isCloudSleeping || isAppInBackground() || cloudRealtimeChannel || cloudRealtimeSubscriptionPromise) return;
+  const generation = cloudRealtimeSubscriptionGeneration;
+  const setup = (async () => {
+    const library = await loadCloudRealtimeLibrary();
+    if (generation !== cloudRealtimeSubscriptionGeneration || isCloudSleeping || isAppInBackground()) return;
+    cloudRealtimeClient ||= library.createClient(supabaseUrl, supabasePublishableKey, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    });
+    const channel = cloudRealtimeClient
+      .channel("cles-app-state-heartbeat")
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "app_state",
+        filter: `key=eq.${cloudSyncHeartbeatStorageKey}`,
+      }, () => {
+        if (cloudRealtimeChannel !== channel || isResettingTableData) return;
+        requestAutomaticCloudRefresh({ force: true, immediate: true });
+      });
+    cloudRealtimeChannel = channel;
+    channel.subscribe((status) => {
+      if (cloudRealtimeChannel !== channel) return;
+      isCloudRealtimeSubscribed = status === "SUBSCRIBED";
+      if (isCloudRealtimeSubscribed) requestAutomaticCloudRefresh({ force: true, immediate: true });
+    });
+  })();
+  cloudRealtimeSubscriptionPromise = setup;
+  try {
+    await setup;
+  } catch (error) {
+    console.warn("Supabase Realtime unavailable; polling remains active", error.message);
+  } finally {
+    if (cloudRealtimeSubscriptionPromise === setup) cloudRealtimeSubscriptionPromise = null;
+  }
 }
 
 async function reloadCompleteCloudState() {

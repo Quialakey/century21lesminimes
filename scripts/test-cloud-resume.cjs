@@ -1018,6 +1018,56 @@ async function main() {
       }
     }
     await page.setViewportSize(photoCardViewport);
+    await page.waitForFunction(() => Boolean(window.supabase?.createClient), null, { timeout: 5000 });
+    const realtimeSignal = await page.evaluate(async () => {
+      const originalLibrary = window.supabase;
+      const originalClient = cloudRealtimeClient;
+      const originalRefresh = requestAutomaticCloudRefresh;
+      const calls = [];
+      let subscriptionStatus;
+      let onChange;
+      let filter;
+      let removed = 0;
+      stopCloudChangeSubscription();
+      try {
+        cloudRealtimeClient = null;
+        window.supabase = {
+          createClient: () => ({
+            channel: () => ({
+              on: (type, options, callback) => {
+                if (type === "postgres_changes") {
+                  filter = options.filter;
+                  onChange = callback;
+                }
+                return { subscribe: (callback) => { subscriptionStatus = callback; } };
+              },
+            }),
+            removeChannel: async () => { removed += 1; },
+          }),
+        };
+        requestAutomaticCloudRefresh = (options) => calls.push(options);
+        await subscribeToCloudChanges();
+        subscriptionStatus("SUBSCRIBED");
+        const subscribed = isCloudRealtimeSubscribed;
+        onChange();
+        stopCloudChangeSubscription();
+        subscriptionStatus("SUBSCRIBED");
+        return { filter, subscribed, refreshes: calls.length, removed, stopped: !isCloudRealtimeSubscribed };
+      } finally {
+        stopCloudChangeSubscription();
+        window.supabase = originalLibrary;
+        cloudRealtimeClient = originalClient;
+        requestAutomaticCloudRefresh = originalRefresh;
+        void subscribeToCloudChanges();
+      }
+    });
+    assert.deepEqual(realtimeSignal, {
+      filter: "key=eq.cles-cloud-sync-heartbeat-v1",
+      subscribed: true,
+      refreshes: 2,
+      removed: 1,
+      stopped: true,
+    });
     process.stdout.write("Cloud startup, wake refresh, and retry checks passed.\n");
   } finally {
     await browser?.close();

@@ -1,6 +1,6 @@
 const workerUrl = new URL(self.location.href);
 const agencyCacheId = String(workerUrl.searchParams.get("agency") || "default-agency").replace(/[^a-z0-9-]/gi, "-");
-const appVersion = "20260927-7";
+const appVersion = "20260928-1";
 const runtimeCachePrefix = `quialakey-runtime-${agencyCacheId}-`;
 const runtimeCacheName = `${runtimeCachePrefix}${appVersion}`;
 const workerBaseUrl = new URL("./", self.location.href);
@@ -8,6 +8,7 @@ const networkTimeoutMs = 3500;
 const coreAssetPaths = [
   "./",
   "vendor/exceljs-4.4.0.min.js",
+  `vendor/supabase-2.110.8.min.js?v=${appVersion}`,
   `app.js?v=${appVersion}`,
   `styles.css?v=${appVersion}`,
   `agency-config.js?v=${appVersion}`,
