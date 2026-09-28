@@ -35,7 +35,7 @@ const browserStorageNamespace = `quialakey:${agencyId}:`;
 const supabaseUrl = String(rawAgencyConfig.supabaseUrl || "").trim();
 const supabasePublishableKey = String(rawAgencyConfig.supabasePublishableKey || "").trim();
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260928-4";
+const appBuildVersion = "20260928-5";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = `${browserStorageNamespace}cles-app-build-reload-v1`;
 const appBuildVersionUrl = "app-version.json";
@@ -1437,7 +1437,7 @@ function saveHiddenGlobalHistoryIds(hiddenIds) {
   scheduleStorageKeySync(hiddenGlobalHistoryStorageKey);
 }
 
-function logActivity(action, title, details = "") {
+function logActivity(action, title, details = "", context = {}) {
   const entries = loadActivityLog();
   entries.unshift({
     id: `activity-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -1447,6 +1447,9 @@ function logActivity(action, title, details = "") {
     details,
     device: getDeviceName(),
     registry: activeRegistry,
+    ...(context.keyId ? { keyId: context.keyId } : {}),
+    ...(context.setId ? { setId: context.setId } : {}),
+    ...(context.movementId ? { movementId: context.movementId } : {}),
   });
   saveActivityLog(entries);
 }
@@ -4644,6 +4647,10 @@ async function duplicateSelectedKeyInCurrentRegistry() {
 
   rememberUndoStep();
   const sourceContent = cloneKeyContent(sourceKey);
+  sourceContent.sets = sourceContent.sets.map((set) => ({
+    ...makeKeySet(set.id),
+    photo: set.photo || "",
+  }));
   keys = keys.map((key) => (key.id === targetKey.id ? applyKeyContent(key, sourceContent) : key));
   rememberForcedKeySlot(targetKey.id, sourceContent);
   markDirtyKeySlot(targetKey.id);
@@ -5679,6 +5686,7 @@ function getRegistryHistoryEntries(registry) {
         entries.push({
           keyId: key.id,
           setId: set.id,
+          movementId: movement.id || "",
           timestamp: parseHistoryTimestamp(movement.date),
           date: movement.date || "Date non renseignée",
           title: `${keyLabel(key)} - ${registryLabel}${key.owner ? ` - ${formatOwner(key.owner)}` : ""} - ${set.label}`,
@@ -5932,20 +5940,11 @@ function renderGlobalHistoryItems(targetList = globalHistoryList, registryFilter
     return buildActivityTitle(entry, "", "", ownerFromDetails || (isSetCountDetail(rawTitle) ? "" : rawTitle));
   };
   const getActivityTitle = (entry) => {
-    const action = String(entry.action || "").toLocaleLowerCase("fr-FR");
-    if (!action.includes("cr\u00e9ation fiche") &&
-      ["in", "out", "reserved", "signed"].includes(getActionClass(entry.action)) &&
-      !getTitleKeyLabel(entry.title)) {
-      return buildActivityTitle(entry, "", "", String(entry.title || "").trim());
-    }
-    if (action.includes("cr\u00e9ation fiche")) {
-      const ownerFromDetails = String(entry.details || "").split(" - ")[0]?.trim();
-      if (ownerFromDetails) {
-        const formattedOwner = formatOwner(ownerFromDetails);
-        const ownerMap = ownerMaps[entry.registry] || new Map();
-        const keyLabelEntry = [...ownerMap.entries()].find(([, owner]) => owner === formattedOwner)?.[0];
-        return buildActivityTitle(entry, keyLabelEntry || "", formattedOwner, formattedOwner);
-      }
+    if (!getTitleKeyLabel(entry.title)) {
+      const rawTitle = String(entry.title || "").trim();
+      const isCreation = String(entry.action || "").toLocaleLowerCase("fr-FR").includes("cr\u00e9ation fiche");
+      const title = isCreation ? getActivityOwnerFromDetails(entry) || rawTitle : rawTitle;
+      return buildActivityTitle(entry, "", "", isSetCountDetail(rawTitle) ? "" : title);
     }
 
     return replaceKeyLabelWithOwner(entry);
@@ -5996,6 +5995,9 @@ function renderGlobalHistoryItems(targetList = globalHistoryList, registryFilter
 
   let activityEntries = cleanedActivityLog.map((entry) => ({
     id: entry.id || "",
+    keyId: entry.keyId || "",
+    setId: entry.setId || "",
+    movementId: entry.movementId || "",
     timestamp: parseHistoryTimestamp(entry.date),
     date: formatArchiveDate(entry.date),
     title: isContactActivity(entry) ? cleanContactHistoryName(entry) : getActivityTitle(entry),
@@ -6044,7 +6046,20 @@ function renderGlobalHistoryItems(targetList = globalHistoryList, registryFilter
     ...entry,
     source: "registry",
   }));
+  const getMovementIdentity = (entry) => entry.movementId && entry.keyId && entry.setId
+    ? [entry.registry || "", entry.keyId, entry.setId, entry.movementId].join("|")
+    : "";
+  const registryEntriesByMovementId = new Map(
+    registryEntries.filter((entry) => getMovementIdentity(entry))
+      .map((entry) => [getMovementIdentity(entry), entry]),
+  );
   const completeActivityTitleFromRegistry = (activityEntry) => {
+    if (activityEntry.movementId) {
+      const exactMatch = registryEntriesByMovementId.get(getMovementIdentity(activityEntry));
+      return exactMatch
+        ? { ...activityEntry, title: exactMatch.title, action: exactMatch.action, keyId: exactMatch.keyId, setId: exactMatch.setId }
+        : activityEntry;
+    }
     const activityMinute = Math.floor(activityEntry.timestamp / 60000);
     const activityActionClass = getActionClass(activityEntry.action);
     const activitySearch = `${activityEntry.title} ${activityEntry.details} ${activityEntry.actor}`.toLocaleLowerCase("fr-FR");
@@ -6087,16 +6102,33 @@ function renderGlobalHistoryItems(targetList = globalHistoryList, registryFilter
     return `${normalizedAction}|${keyLabelEntry ? keyLabelEntry.toLocaleLowerCase("fr-FR") : normalizedTitle}|${minute}`;
   };
   const activityEntriesByKey = new Map();
+  const activityEntriesByMovementId = new Map();
+  const unmatchedTaggedActivities = [];
   activityEntries.forEach((entry) => {
+    if (entry.movementId) {
+      const movementIdentity = getMovementIdentity(entry);
+      if (!movementIdentity) {
+        unmatchedTaggedActivities.push(entry);
+        return;
+      }
+      const matchingEntries = activityEntriesByMovementId.get(movementIdentity) || [];
+      matchingEntries.push(entry);
+      activityEntriesByMovementId.set(movementIdentity, matchingEntries);
+      return;
+    }
     const key = getDeduplicationKey(entry);
     const matchingEntries = activityEntriesByKey.get(key) || [];
     matchingEntries.push(entry);
     activityEntriesByKey.set(key, matchingEntries);
   });
   const deduplicatedEntries = registryEntries.map((registryEntry) => {
+    const movementIdentity = getMovementIdentity(registryEntry);
+    const matchingById = movementIdentity ? activityEntriesByMovementId.get(movementIdentity) || [] : [];
+    const exactActivity = matchingById.shift();
+    if (movementIdentity && !matchingById.length) activityEntriesByMovementId.delete(movementIdentity);
     const key = getDeduplicationKey(registryEntry);
     const matchingActivities = activityEntriesByKey.get(key) || [];
-    const activityEntry = matchingActivities.shift();
+    const activityEntry = exactActivity || matchingActivities.shift();
     if (!matchingActivities.length) activityEntriesByKey.delete(key);
     if (!activityEntry) return registryEntry;
     return {
@@ -6111,6 +6143,8 @@ function renderGlobalHistoryItems(targetList = globalHistoryList, registryFilter
   activityEntriesByKey.forEach((remainingEntries) => {
     deduplicatedEntries.push(...remainingEntries.filter((entry) => !entry.isAmbiguousOwnerMovement));
   });
+  activityEntriesByMovementId.forEach((remainingEntries) => deduplicatedEntries.push(...remainingEntries));
+  deduplicatedEntries.push(...unmatchedTaggedActivities);
   const getGlobalHistoryPriority = (entry) => {
     const action = String(entry.action || "").toLocaleLowerCase("fr-FR");
     if (action.includes("cr\u00e9ation fiche")) return 0;
@@ -8751,7 +8785,9 @@ async function addMovement(type) {
     history: [entry, ...selectedSet.history],
   });
   if (isNewKeyDraft) commitPendingNewKeyDraft();
-  logActivity(getMovementActionLabel(entry), `${keyLabel(key)}${key.owner ? ` - ${formatOwner(key.owner)}` : ""} - ${selectedSet.label}`, [entry.person || entry.company, entry.phone, entry.note].filter(Boolean).join(" | "));
+  logActivity(getMovementActionLabel(entry), `${keyLabel(key)}${key.owner ? ` - ${formatOwner(key.owner)}` : ""} - ${selectedSet.label}`, [entry.person || entry.company, entry.phone, entry.note].filter(Boolean).join(" | "), {
+    keyId: key.id, setId: selectedSet.id, movementId: entry.id,
+  });
 
   movementPersonInput.value = "";
   movementNameInput.value = "";
@@ -8947,6 +8983,7 @@ async function toggleReservationMovement(reservationId) {
     getMovementActionLabel(entry),
     `${keyLabel(key)}${key.owner ? ` - ${formatOwner(key.owner)}` : ""} - ${selectedSet.label}`,
     [entry.person || entry.company, entry.phone, entry.note].filter(Boolean).join(" | "),
+    { keyId: key.id, setId: selectedSet.id, movementId: entry.id },
   );
   const actionArchivesChanged = Boolean(selectedArchiveRecord);
   if (selectedArchiveRecord) renderCompromisesPanel();
@@ -8984,7 +9021,9 @@ async function cancelReservation(reservationId) {
     reservations: (selectedSet.reservations || []).filter((item) => item.id !== reservationId),
     history: [entry, ...selectedSet.history],
   });
-  logActivity("Annulation r\u00e9servation", `${keyLabel(key)}${key.owner ? ` - ${formatOwner(key.owner)}` : ""} - ${selectedSet.label}`, entry.person);
+  logActivity("Annulation r\u00e9servation", `${keyLabel(key)}${key.owner ? ` - ${formatOwner(key.owner)}` : ""} - ${selectedSet.label}`, entry.person, {
+    keyId: key.id, setId: selectedSet.id, movementId: entry.id,
+  });
   const actionArchivesChanged = Boolean(selectedArchiveRecord);
   if (selectedArchiveRecord) renderCompromisesPanel();
   markKeyControlActionForSync(key.id, { keysChanged: !actionArchivesChanged, archivesChanged: actionArchivesChanged });
@@ -9221,6 +9260,7 @@ async function reserveSelectedSet() {
     "R\u00e9serv\u00e9",
     `${keyLabel(key)}${key.owner ? ` - ${formatOwner(key.owner)}` : ""} - ${selectedSet.label}`,
     [person ? `Intervenant : ${person}` : "", phone ? `T\u00e9l\u00e9phone : ${phone}` : "", company ? `Soci\u00e9t\u00e9 : ${company}` : "", `Pour le ${formattedDate}`, entry.note].filter(Boolean).join(" | "),
+    { keyId: key.id, setId: selectedSet.id, movementId: entry.id },
   );
 
   movementPersonInput.value = "";

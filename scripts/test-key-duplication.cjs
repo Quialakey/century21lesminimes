@@ -133,7 +133,12 @@ async function main() {
     assert.equal(result.first.selectedId, "T2-5");
     assert.equal(result.first.source.owner, "ASTIER");
     assert.equal(result.first.target.owner, "ASTIER");
-    assert.deepEqual(result.first.target.sets, result.first.source.sets);
+    assert.equal(result.first.target.sets[0].photo, result.first.source.sets[0].photo);
+    assert.equal(result.first.target.sets[0].status, "available");
+    assert.deepEqual(result.first.target.sets[0].history, []);
+    assert.deepEqual(result.first.target.sets[0].reservations, []);
+    assert.equal(result.first.source.sets[0].status, "reserved");
+    assert.equal(result.first.source.sets[0].history.length, 1);
     assert.equal(result.first.previous.owner, "");
     assert.equal(result.previousWhenNextOccupied.owner, "ASTIER");
     assert.equal(result.noSlotSelectedId, "T2-4");

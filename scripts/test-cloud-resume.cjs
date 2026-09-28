@@ -1235,8 +1235,33 @@ async function main() {
         setRuntimeStorageValue(appActivityLogStorageKey, JSON.stringify([activity]));
         const list = document.createElement("ol");
         renderGlobalHistoryItems(list, "location");
-        return [...list.querySelectorAll('li[data-history-action="reserved"]')]
+        const legacySlots = [...list.querySelectorAll('li[data-history-action="reserved"]')]
           .map((item) => item.dataset.historyKeyId);
+        const competingKey = normalizeKey({
+          id: "T3-13", category: "T3", number: 13, owner: "DE COOLS", property: "Autre bien",
+          sets: [{
+            ...makeKeySet("main"),
+            history: [{
+              id: "history-other", type: "reserved", reservationId: "reservation-other",
+              person: "Mélissa HERVIAUX", date: reservationDate, reservationDate,
+            }],
+          }],
+        });
+        setRuntimeStorageValue(location.keysStorageKey, JSON.stringify([reservedKey, competingKey]));
+        setRuntimeStorageValue(appActivityLogStorageKey, JSON.stringify([{
+          ...activity, date: new Date(2026, 8, 28, 11, 25, 1).toISOString(),
+          keyId: "T2-6", setId: "main", movementId: "history-test",
+        }]));
+        renderGlobalHistoryItems(list, "location");
+        const taggedRows = [...list.querySelectorAll('li[data-history-action="reserved"]')]
+          .map((item) => ({ keyId: item.dataset.historyKeyId, historyId: item.dataset.globalHistoryId }));
+        setRuntimeStorageValue(appActivityLogStorageKey, JSON.stringify([{
+          id: "creation-legacy", date: activity.date, action: "Création fiche", registry: "location",
+          title: "DE COOLS", details: "DE COOLS - Adresse test",
+        }]));
+        renderGlobalHistoryItems(list, "location");
+        const legacyCreationKeyId = list.querySelector('li[data-global-history-id="activity:creation-legacy"]')?.dataset.historyKeyId;
+        return { legacySlots, taggedRows, legacyCreationKeyId };
       } finally {
         previousValues.forEach((value, key) => {
           if (value === null) removeRuntimeStorageValue(key);
@@ -1244,7 +1269,11 @@ async function main() {
         });
       }
     });
-    assert.deepEqual(reservationHistorySlots, ["T2-6"]);
+    assert.deepEqual(reservationHistorySlots.legacySlots, ["T2-6"]);
+    assert.equal(reservationHistorySlots.taggedRows.length, 2);
+    assert.equal(reservationHistorySlots.taggedRows.find((row) => row.keyId === "T2-6")?.historyId, "activity:activity-test");
+    assert.ok(reservationHistorySlots.taggedRows.some((row) => row.keyId === "T3-13"));
+    assert.equal(reservationHistorySlots.legacyCreationKeyId, "");
     process.stdout.write("Cloud startup, wake refresh, retry, and key detail sync checks passed.\n");
   } finally {
     await browser?.close();
