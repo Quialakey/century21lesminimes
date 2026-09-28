@@ -35,7 +35,7 @@ const browserStorageNamespace = `quialakey:${agencyId}:`;
 const supabaseUrl = String(rawAgencyConfig.supabaseUrl || "").trim();
 const supabasePublishableKey = String(rawAgencyConfig.supabasePublishableKey || "").trim();
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260928-2";
+const appBuildVersion = "20260928-3";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = `${browserStorageNamespace}cles-app-build-reload-v1`;
 const appBuildVersionUrl = "app-version.json";
@@ -1667,6 +1667,15 @@ function pendingKeySlotHasUnsyncedMovement(pendingWrite, cloudRow) {
   });
 }
 
+const keyInfoFields = ["property", "postalCode", "city", "owner", "ownerFirstName", "notes"];
+
+function pendingKeySlotHasUnsyncedInfo(pendingWrite, cloudRow) {
+  if (!pendingWrite?.baseValue || !cloudRow?.value) return false;
+  const local = normalizeKey(pendingWrite.value);
+  const remote = normalizeCloudSlotKey(cloudRow);
+  return keyInfoFields.some((field) => local[field] !== remote[field]);
+}
+
 function rememberSlotCloudSeenAt(row) {
   const nextTime = Date.parse(row?.updated_at || "");
   if (Number.isNaN(nextTime)) return;
@@ -1755,8 +1764,25 @@ function mergeKeyRecord(preferredRaw, fallbackRaw, options = {}) {
     return options.keepFallbackWhenPreferredEmpty ? fallback : preferred;
   }
   if (fallbackScore === 0) return preferred;
-  if (!shouldMergeKeyFallback(preferred, fallback)) {
+  const base = options.baseValue ? normalizeKey(options.baseValue) : null;
+  if (!base && !shouldMergeKeyFallback(preferred, fallback)) {
     throw new Error("Conflit de fiche : cette case contient un autre bien sur le serveur. Vérifiez le tableau avant de réessayer.");
+  }
+
+  const mergedInfo = {};
+  if (base) {
+    for (const field of keyInfoFields) {
+      const localChanged = preferred[field] !== base[field];
+      const remoteChanged = fallback[field] !== base[field];
+      if ((field === "owner" || field === "property") && remoteChanged &&
+        comparableKeyIdentityValue(fallback[field]) !== comparableKeyIdentityValue(preferred[field])) {
+        throw new Error("Conflit de fiche : cette case contient un autre bien sur le serveur. Vérifiez le tableau avant de réessayer.");
+      }
+      if (localChanged && remoteChanged && preferred[field] !== fallback[field]) {
+        throw new Error("Conflit de fiche : les détails ont été modifiés sur deux appareils. Vérifiez la fiche avant de réessayer.");
+      }
+      mergedInfo[field] = localChanged ? preferred[field] : fallback[field];
+    }
   }
 
   return normalizeKey({
@@ -1767,6 +1793,7 @@ function mergeKeyRecord(preferredRaw, fallbackRaw, options = {}) {
     owner: preferred.owner || fallback.owner,
     ownerFirstName: preferred.ownerFirstName || fallback.ownerFirstName,
     notes: preferred.notes || fallback.notes,
+    ...mergedInfo,
     sets: preferred.sets.map((set) =>
       mergeKeySetWithoutLosingMovements(set, fallback.sets.find((savedSet) => savedSet.id === set.id))),
   });
@@ -1921,7 +1948,8 @@ function saveKeySlotCloudRow(row, options = {}) {
   if (pendingWrite) {
     if (cloudRowMatchesPendingKeySlotWrite(row, pendingWrite)) confirmPendingKeySlotWrite(row.key, row);
     else if (cloudRowIsNewerThanPendingKeySlotWrite(row, pendingWrite) &&
-      !pendingKeySlotHasUnsyncedMovement(pendingWrite, row)) discardPendingKeySlotWrite(row.key);
+      !pendingKeySlotHasUnsyncedMovement(pendingWrite, row) &&
+      !pendingKeySlotHasUnsyncedInfo(pendingWrite, row)) discardPendingKeySlotWrite(row.key);
     else {
       dirtyCloudKeys.add(storageKey);
       failedCloudSyncKeys.add(storageKey);
@@ -1981,7 +2009,8 @@ function applyInitialCloudKeyStorageState(legacyKeyRows, slotRows, pendingStartu
         if (pendingWrite) {
           if (cloudRowMatchesPendingKeySlotWrite(slotRow, pendingWrite)) confirmPendingKeySlotWrite(slotCloudKey, slotRow);
           else if (cloudRowIsNewerThanPendingKeySlotWrite(slotRow, pendingWrite) &&
-            !pendingKeySlotHasUnsyncedMovement(pendingWrite, slotRow)) {
+            !pendingKeySlotHasUnsyncedMovement(pendingWrite, slotRow) &&
+            !pendingKeySlotHasUnsyncedInfo(pendingWrite, slotRow)) {
             discardPendingKeySlotWrite(slotCloudKey);
             return normalizeCloudSlotKey(slotRow);
           } else return currentKey || normalizeKey(pendingWrite.value);
@@ -2140,7 +2169,9 @@ async function writeConfirmedKeySlotsToCloud(storageKey, keyIds, initialKeysById
       const cloudKey = getKeySlotCloudKey(storageKey, keyId);
       const remoteRow = remoteRowsByKey.get(cloudKey);
       if (!remoteRow?.value) return;
-      const mergedValue = mergeKeyRecord(intendedValue, parseCloudObjectValue(remoteRow.value));
+      const mergedValue = mergeKeyRecord(intendedValue, parseCloudObjectValue(remoteRow.value), {
+        baseValue: getPendingKeySlotWrite(cloudKey)?.baseValue,
+      });
       intendedValues.set(keyId, mergedValue);
       rememberPendingKeySlotWrite(storageKey, keyId, mergedValue);
     });
@@ -2198,7 +2229,9 @@ async function writeConfirmedKeySlotsToCloud(storageKey, keyIds, initialKeysById
     intendedValues.forEach((intendedValue, keyId) => {
       const confirmedRow = confirmedRowsByKey.get(getKeySlotCloudKey(storageKey, keyId));
       if (!confirmedRow?.value) return;
-      const mergedValue = mergeKeyRecord(intendedValue, parseCloudObjectValue(confirmedRow.value));
+      const mergedValue = mergeKeyRecord(intendedValue, parseCloudObjectValue(confirmedRow.value), {
+        baseValue: getPendingKeySlotWrite(getKeySlotCloudKey(storageKey, keyId))?.baseValue,
+      });
       intendedValues.set(keyId, mergedValue);
       rememberPendingKeySlotWrite(storageKey, keyId, mergedValue);
     });
@@ -2267,7 +2300,7 @@ function getPendingKeySlotWrite(cloudKey) {
   return pendingKeySlotWrites.get(cloudKey) || null;
 }
 
-function rememberPendingKeySlotWrite(storageKey, keyId, value) {
+function rememberPendingKeySlotWrite(storageKey, keyId, value, options = {}) {
   if (!storageKey || !keyId || !value) return;
   const cloudKey = getKeySlotCloudKey(storageKey, keyId);
   const normalizedValue = normalizeKey({ ...value, id: keyId });
@@ -2280,8 +2313,18 @@ function rememberPendingKeySlotWrite(storageKey, keyId, value) {
     comparableValue: getComparableKeySlotValue(normalizedValue),
     savedAt: Date.now(),
     allowClear: Boolean(previousWrite?.allowClear || recentlyClearedKeySlots.has(memoryKey)),
+    baseValue: previousWrite?.baseValue || options.baseValue || null,
   });
   savePendingKeySlotWrites();
+}
+
+function rememberKeyInfoEditBase() {
+  const key = getSelectedKey();
+  if (!key || selectedArchiveRecord || isPendingNewKeyDraft(key.id)) return;
+  const storageKey = getRegistryConfig().keysStorageKey;
+  const cloudKey = getKeySlotCloudKey(storageKey, key.id);
+  if (getPendingKeySlotWrite(cloudKey)?.baseValue) return;
+  rememberPendingKeySlotWrite(storageKey, key.id, key, { baseValue: key });
 }
 
 function rememberDirtyKeySlotSnapshots(storageKey) {
@@ -4810,6 +4853,7 @@ function captureActiveKeyInfoDraft() {
     return;
   }
   if (keyInfoDraftMatchesKey(changes, getSelectedKey())) return;
+  rememberKeyInfoEditBase();
   rememberActiveKeyInfoDraft(changes);
   markDirtyKeySlot(selectedId);
   keys = keys.map((key) => (key.id === selectedId ? { ...key, ...changes } : key));
@@ -4843,6 +4887,7 @@ function updateSelectedKeyInfoFromDraft(options = {}) {
       pendingNewKeyDraft = { ...pendingNewKeyDraft, ...changes };
       return;
     }
+    rememberKeyInfoEditBase();
     rememberActiveKeyInfoDraft(changes);
     markDirtyKeySlot(selectedId);
     updateSelectedKey(changes, { renderPanel: false, render: options.render !== false });

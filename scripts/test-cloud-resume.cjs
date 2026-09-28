@@ -768,6 +768,10 @@ async function main() {
       return JSON.parse((await readIndexedStorageEntry(storageKey)).value)
         .find((key) => key.id === "T3-1").owner;
     }), "MEYER MODIFIÉ");
+    assert.equal(await page.evaluate(() => {
+      const storageKey = getRegistryConfig().keysStorageKey;
+      return getPendingKeySlotWrite(getKeySlotCloudKey(storageKey, "T3-1"))?.baseValue?.owner;
+    }), "MEYER");
     await page.evaluate(() => {
       selectedId = "T3-1";
       selectedSetId = "main";
@@ -1123,7 +1127,76 @@ async function main() {
       removed: 1,
       stopped: true,
     });
-    process.stdout.write("Cloud startup, wake refresh, and retry checks passed.\n");
+    const detailSync = await page.evaluate(async () => {
+      const storageKey = getRegistryConfig().keysStorageKey;
+      const keyId = "T3-1";
+      const cloudKey = getKeySlotCloudKey(storageKey, keyId);
+      const base = normalizeKey({
+        id: keyId, category: "T3", number: 1, owner: "MEYER", property: "27 avenue Test",
+        notes: "Ancienne note", sets: [makeKeySet("main")],
+      });
+      const changed = { ...base, owner: "MEYER CORRIGÉ", notes: "" };
+      let remoteRow = { key: cloudKey, value: base, updated_at: "2026-09-21T17:00:00Z" };
+      const originalFrom = supabaseClient.from;
+      let writes = 0;
+      supabaseClient.from = () => ({
+        select: () => ({ in: async () => ({ data: [remoteRow], error: null }) }),
+        upsert: async (payloads) => {
+          const payload = payloads.find((item) => item.key === cloudKey);
+          if (payload) {
+            writes += 1;
+            remoteRow = { key: cloudKey, value: payload.value, updated_at: payload.updated_at };
+          }
+          return { data: [], error: null };
+        },
+      });
+      try {
+        pendingKeySlotWrites.delete(cloudKey);
+        rememberPendingKeySlotWrite(storageKey, keyId, base, { baseValue: base });
+        rememberPendingKeySlotWrite(storageKey, keyId, changed);
+        const confirmed = await writeConfirmedKeySlotsToCloud(storageKey, [keyId], new Map([[keyId, changed]]));
+        const persisted = confirmed.get(keyId);
+        saveKeySlotCloudRow(remoteRow);
+        const reloadedOwner = parseStoredArray(storageKey, makeInitialKeys())
+          .find((key) => key.id === keyId)?.owner;
+        let collisionRejected = false;
+        try {
+          mergeKeyRecord(changed, { ...base, owner: "AUTRE BIEN" }, { baseValue: base });
+        } catch {
+          collisionRejected = true;
+        }
+        const newerRemoteRow = {
+          ...remoteRow,
+          value: base,
+          updated_at: "2100-01-01T00:00:00Z",
+        };
+        rememberPendingKeySlotWrite(storageKey, keyId, changed, { baseValue: base });
+        saveKeySlotCloudRow(newerRemoteRow);
+        return {
+          persistedOwner: persisted.owner,
+          persistedNotes: persisted.notes,
+          cloudOwner: remoteRow.value.owner,
+          reloadedOwner,
+          writes,
+          collisionRejected,
+          pendingSurvivesNewerOldValue: Boolean(getPendingKeySlotWrite(cloudKey)),
+        };
+      } finally {
+        supabaseClient.from = originalFrom;
+        pendingKeySlotWrites.delete(cloudKey);
+        savePendingKeySlotWrites();
+      }
+    });
+    assert.deepEqual(detailSync, {
+      persistedOwner: "MEYER CORRIGÉ",
+      persistedNotes: "",
+      cloudOwner: "MEYER CORRIGÉ",
+      reloadedOwner: "MEYER CORRIGÉ",
+      writes: 1,
+      collisionRejected: true,
+      pendingSurvivesNewerOldValue: true,
+    });
+    process.stdout.write("Cloud startup, wake refresh, retry, and key detail sync checks passed.\n");
   } finally {
     await browser?.close();
     await new Promise((resolve) => server.close(resolve));
