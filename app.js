@@ -35,7 +35,7 @@ const browserStorageNamespace = `quialakey:${agencyId}:`;
 const supabaseUrl = String(rawAgencyConfig.supabaseUrl || "").trim();
 const supabasePublishableKey = String(rawAgencyConfig.supabasePublishableKey || "").trim();
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260928-3";
+const appBuildVersion = "20260928-4";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = `${browserStorageNamespace}cles-app-build-reload-v1`;
 const appBuildVersionUrl = "app-version.json";
@@ -5932,7 +5932,13 @@ function renderGlobalHistoryItems(targetList = globalHistoryList, registryFilter
     return buildActivityTitle(entry, "", "", ownerFromDetails || (isSetCountDetail(rawTitle) ? "" : rawTitle));
   };
   const getActivityTitle = (entry) => {
-    if (String(entry.action || "").toLocaleLowerCase("fr-FR").includes("cr\u00e9ation fiche")) {
+    const action = String(entry.action || "").toLocaleLowerCase("fr-FR");
+    if (!action.includes("cr\u00e9ation fiche") &&
+      ["in", "out", "reserved", "signed"].includes(getActionClass(entry.action)) &&
+      !getTitleKeyLabel(entry.title)) {
+      return buildActivityTitle(entry, "", "", String(entry.title || "").trim());
+    }
+    if (action.includes("cr\u00e9ation fiche")) {
       const ownerFromDetails = String(entry.details || "").split(" - ")[0]?.trim();
       if (ownerFromDetails) {
         const formattedOwner = formatOwner(ownerFromDetails);
@@ -8978,7 +8984,7 @@ async function cancelReservation(reservationId) {
     reservations: (selectedSet.reservations || []).filter((item) => item.id !== reservationId),
     history: [entry, ...selectedSet.history],
   });
-  logActivity("Annulation r\u00e9servation", `${key.owner ? formatOwner(key.owner) : keyLabel(key)} - ${selectedSet.label}`, entry.person);
+  logActivity("Annulation r\u00e9servation", `${keyLabel(key)}${key.owner ? ` - ${formatOwner(key.owner)}` : ""} - ${selectedSet.label}`, entry.person);
   const actionArchivesChanged = Boolean(selectedArchiveRecord);
   if (selectedArchiveRecord) renderCompromisesPanel();
   markKeyControlActionForSync(key.id, { keysChanged: !actionArchivesChanged, archivesChanged: actionArchivesChanged });
@@ -9213,7 +9219,7 @@ async function reserveSelectedSet() {
   });
   logActivity(
     "R\u00e9serv\u00e9",
-    `${key.owner ? formatOwner(key.owner) : keyLabel(key)} - ${selectedSet.label}`,
+    `${keyLabel(key)}${key.owner ? ` - ${formatOwner(key.owner)}` : ""} - ${selectedSet.label}`,
     [person ? `Intervenant : ${person}` : "", phone ? `T\u00e9l\u00e9phone : ${phone}` : "", company ? `Soci\u00e9t\u00e9 : ${company}` : "", `Pour le ${formattedDate}`, entry.note].filter(Boolean).join(" | "),
   );
 

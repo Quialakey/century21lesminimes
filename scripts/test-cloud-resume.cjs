@@ -1196,6 +1196,55 @@ async function main() {
       collisionRejected: true,
       pendingSurvivesNewerOldValue: true,
     });
+    const reservationHistorySlots = await page.evaluate(() => {
+      const location = registryConfig.location;
+      const transaction = registryConfig.transaction;
+      const storageKeys = [
+        location.keysStorageKey, location.archivesStorageKey,
+        transaction.keysStorageKey, transaction.archivesStorageKey,
+        appActivityLogStorageKey,
+      ];
+      const previousValues = new Map(storageKeys.map((key) => [key, getRuntimeStorageValue(key)]));
+      const reservationDate = "28/09/2026 11:24";
+      const reservedKey = normalizeKey({
+        id: "T2-6", category: "T2", number: 6, owner: "DE COOLS", property: "Adresse test",
+        sets: [{
+          ...makeKeySet("main"),
+          history: [{
+            id: "history-test", type: "reserved", reservationId: "reservation-test",
+            person: "Mélissa HERVIAUX", date: reservationDate, reservationDate,
+          }],
+        }],
+      });
+      const oldArchivedKey = normalizeKey({
+        id: "T3-13", category: "T3", number: 13, owner: "DE COOLS", property: "Ancien bien",
+        sets: [makeKeySet("main")],
+      });
+      const activity = {
+        id: "activity-test", date: new Date(2026, 8, 28, 11, 24, 7).toISOString(),
+        action: "Réservé", registry: "location", title: "DE COOLS - Jeu 1",
+        details: "Intervenant : Mélissa HERVIAUX | Pour le 28/09/2026 11:24",
+      };
+      try {
+        setRuntimeStorageValue(location.keysStorageKey, JSON.stringify([reservedKey]));
+        setRuntimeStorageValue(location.archivesStorageKey, JSON.stringify([{
+          id: "old-t3-13", reason: "rented", archivedAt: "2026-09-17T12:24:41Z", key: oldArchivedKey,
+        }]));
+        setRuntimeStorageValue(transaction.keysStorageKey, "[]");
+        setRuntimeStorageValue(transaction.archivesStorageKey, "[]");
+        setRuntimeStorageValue(appActivityLogStorageKey, JSON.stringify([activity]));
+        const list = document.createElement("ol");
+        renderGlobalHistoryItems(list, "location");
+        return [...list.querySelectorAll('li[data-history-action="reserved"]')]
+          .map((item) => item.dataset.historyKeyId);
+      } finally {
+        previousValues.forEach((value, key) => {
+          if (value === null) removeRuntimeStorageValue(key);
+          else setRuntimeStorageValue(key, value);
+        });
+      }
+    });
+    assert.deepEqual(reservationHistorySlots, ["T2-6"]);
     process.stdout.write("Cloud startup, wake refresh, retry, and key detail sync checks passed.\n");
   } finally {
     await browser?.close();
