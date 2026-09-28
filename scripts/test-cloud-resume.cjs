@@ -664,6 +664,30 @@ async function main() {
     assert.equal(await page.evaluate(() => keys.find((key) => key.id === "T3-1").sets.length), 2);
     assert.equal(await page.locator("#keySetCountUnlockBtn").isVisible(), true);
     assert.equal(await page.locator("#keySetCountSelect").isVisible(), false);
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#keySetCountUnlockBtn").dblclick();
+    await page.evaluate(() => {
+      keySetCountSelect.value = "3";
+      document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      document.activeElement.blur();
+    });
+    assert.equal(await page.evaluate(() => selectedId), null);
+    assert.equal(await page.evaluate(() => keys.find((key) => key.id === "T3-1").sets.length), 3);
+    assert.equal(await page.evaluate(async () => {
+      const storageKey = getRegistryConfig().keysStorageKey;
+      await waitForIndexedStorageWrite(storageKey);
+      return JSON.parse((await readIndexedStorageEntry(storageKey)).value)
+        .find((key) => key.id === "T3-1").sets.length;
+    }), 3);
+    await page.evaluate(() => {
+      selectedId = "T3-1";
+      selectedSetId = "main";
+      resetKeyInfoEditUnlock(getSelectedKey());
+      render();
+    });
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#keySetCountUnlockBtn").dblclick();
+    await page.locator("#keySetCountSelect").selectOption("2");
     await page.locator("#keySetSelect").selectOption("double");
     assert.equal(await page.evaluate(() => selectedSetId), "double");
     assert.equal(await page.evaluate(() => keys.find((key) => key.id === "T3-1").sets.length), 2);
@@ -730,6 +754,37 @@ async function main() {
     await page.locator("#ownerInput").dblclick();
     await page.locator("#selectedTitle").click();
     await page.waitForFunction(() => document.querySelector("#ownerInput").readOnly);
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#ownerInput").dblclick();
+    await page.locator("#ownerInput").fill("MEYER MODIFIÉ");
+    await page.evaluate(() => {
+      document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      document.activeElement.blur();
+    });
+    assert.equal(await page.evaluate(() => selectedId), null);
+    assert.equal(await page.evaluate(async () => {
+      const storageKey = getRegistryConfig().keysStorageKey;
+      await waitForIndexedStorageWrite(storageKey);
+      return JSON.parse((await readIndexedStorageEntry(storageKey)).value)
+        .find((key) => key.id === "T3-1").owner;
+    }), "MEYER MODIFIÉ");
+    await page.evaluate(() => {
+      selectedId = "T3-1";
+      selectedSetId = "main";
+      resetKeyInfoEditUnlock(getSelectedKey());
+      render();
+    });
+    assert.equal(await page.locator("#ownerInput").inputValue(), "MEYER MODIFIÉ");
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#ownerInput").dblclick();
+    await page.locator("#ownerInput").fill("MEYER FINAL");
+    await page.locator(".key-tile").filter({ hasText: "T3 #2" }).first().click();
+    assert.equal(await page.evaluate(() => selectedId), "T3-2");
+    await page.waitForTimeout(350);
+    assert.deepEqual(await page.evaluate(() => ({
+      previousOwner: keys.find((key) => key.id === "T3-1").owner,
+      nextOwner: keys.find((key) => key.id === "T3-2").owner,
+    })), { previousOwner: "MEYER FINAL", nextOwner: "" });
 
     await page.evaluate(() => {
       const blankKey = keys.find((key) => key.id === "T3-2");

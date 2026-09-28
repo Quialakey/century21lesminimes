@@ -35,7 +35,7 @@ const browserStorageNamespace = `quialakey:${agencyId}:`;
 const supabaseUrl = String(rawAgencyConfig.supabaseUrl || "").trim();
 const supabasePublishableKey = String(rawAgencyConfig.supabasePublishableKey || "").trim();
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260928-1";
+const appBuildVersion = "20260928-2";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = `${browserStorageNamespace}cles-app-build-reload-v1`;
 const appBuildVersionUrl = "app-version.json";
@@ -4834,7 +4834,8 @@ function restoreActiveKeyInfoDraftIfNeeded() {
   keys = keys.map((key) => (key.id === selectedId ? { ...key, ...activeKeyInfoDraft.changes } : key));
 }
 
-function updateSelectedKeyInfoFromDraft() {
+function updateSelectedKeyInfoFromDraft(options = {}) {
+  if (!selectedId || selectedArchiveRecord) return;
   isSavingKeyInfoDraft = true;
   try {
     const changes = getKeyInfoDraftChanges();
@@ -4844,7 +4845,7 @@ function updateSelectedKeyInfoFromDraft() {
     }
     rememberActiveKeyInfoDraft(changes);
     markDirtyKeySlot(selectedId);
-    updateSelectedKey(changes, { renderPanel: false });
+    updateSelectedKey(changes, { renderPanel: false, render: options.render !== false });
     void syncStorageKeyToCloud(getRegistryConfig().keysStorageKey);
   } finally {
     isSavingKeyInfoDraft = false;
@@ -8500,11 +8501,11 @@ function deleteHistoryEntry(historyId) {
 
 function updateSelectedKey(changes, options = {}) {
   if (selectedArchiveRecord) return;
-  const shouldRenderPanel = options.renderPanel !== false;
+  const shouldRenderPanel = options.render !== false && options.renderPanel !== false;
   if (isPendingNewKeyDraft()) {
     pendingNewKeyDraft = { ...pendingNewKeyDraft, ...changes };
     if (shouldRenderPanel) render();
-    else {
+    else if (options.render !== false) {
       renderGrid();
       renderCompromisesPanel();
     }
@@ -8541,7 +8542,7 @@ function updateSelectedKey(changes, options = {}) {
   saveKeys();
   if (shouldRenderPanel) {
     render();
-  } else {
+  } else if (options.render !== false) {
     renderGrid();
     renderCompromisesPanel();
   }
@@ -8588,7 +8589,7 @@ function updateSelectedKeySets(sets) {
   updateSelectedKey({ sets });
 }
 
-function setKeySetCount(count) {
+function setKeySetCount(count, options = {}) {
   if (selectedArchiveRecord && !isSelectedCompromiseEditable()) return;
   const key = getSelectedKey();
   if (!key) return;
@@ -8635,11 +8636,13 @@ function setKeySetCount(count) {
     selectedArchiveRecord = nextArchiveRecord;
     archives = archives.map((archive) => (archive.id === nextArchiveRecord.id ? nextArchiveRecord : archive));
     saveArchives();
-    renderCompromisesPanel();
-    render();
+    if (options.render !== false) {
+      renderCompromisesPanel();
+      render();
+    }
     return;
   }
-  updateSelectedKey({ sets: nextSets });
+  updateSelectedKey({ sets: nextSets }, { render: options.render !== false });
 }
 
 async function addMovement(type) {
@@ -9390,10 +9393,12 @@ function scheduleCloseArchivesPanel() {
 
 function debounce(callback, delay = 250) {
   let timer;
-  return (...args) => {
+  const debounced = (...args) => {
     clearTimeout(timer);
     timer = setTimeout(() => callback(...args), delay);
   };
+  debounced.cancel = () => clearTimeout(timer);
+  return debounced;
 }
 
 function getSignatureContext() {
@@ -9461,37 +9466,42 @@ function clearSignature() {
   hasSignature = false;
 }
 
-propertyInput.addEventListener(
-  "input",
-  debounce(updateSelectedKeyInfoFromDraft),
-);
+const debouncedKeyInfoSave = debounce((keyId) => {
+  if (selectedId === keyId && (isKeyInfoEditUnlocked || isPendingNewKeyDraft(keyId))) {
+    updateSelectedKeyInfoFromDraft();
+  }
+});
+const scheduleKeyInfoSave = () => debouncedKeyInfoSave(selectedId);
+const commitKeyInfoOnBlur = () => {
+  if (!selectedId || (!isKeyInfoEditUnlocked && !isPendingNewKeyDraft())) return;
+  debouncedKeyInfoSave.cancel();
+  updateSelectedKeyInfoFromDraft();
+};
+
+propertyInput.addEventListener("input", scheduleKeyInfoSave);
 propertyInput.addEventListener("blur", () => {
   propertyInput.value = formatConfigurablePropertyAddress(propertyInput.value);
-  updateSelectedKeyInfoFromDraft();
+  commitKeyInfoOnBlur();
 });
-postalCodeInput.addEventListener("input", debounce(updateSelectedKeyInfoFromDraft));
-cityInput.addEventListener("input", debounce(updateSelectedKeyInfoFromDraft));
+postalCodeInput.addEventListener("input", scheduleKeyInfoSave);
+postalCodeInput.addEventListener("blur", commitKeyInfoOnBlur);
+cityInput.addEventListener("input", scheduleKeyInfoSave);
 cityInput.addEventListener("blur", () => {
   cityInput.value = formatCity(cityInput.value);
-  updateSelectedKeyInfoFromDraft();
+  commitKeyInfoOnBlur();
 });
-ownerInput.addEventListener(
-  "input",
-  debounce(updateSelectedKeyInfoFromDraft),
-);
+ownerInput.addEventListener("input", scheduleKeyInfoSave);
 ownerInput.addEventListener("blur", () => {
   ownerInput.value = formatOwner(ownerInput.value).trim();
-  updateSelectedKeyInfoFromDraft();
+  commitKeyInfoOnBlur();
 });
-ownerFirstNameInput.addEventListener(
-  "input",
-  debounce(updateSelectedKeyInfoFromDraft),
-);
+ownerFirstNameInput.addEventListener("input", scheduleKeyInfoSave);
 ownerFirstNameInput.addEventListener("blur", () => {
   ownerFirstNameInput.value = formatFirstName(ownerFirstNameInput.value);
-  updateSelectedKeyInfoFromDraft();
+  commitKeyInfoOnBlur();
 });
-notesInput.addEventListener("input", debounce(updateSelectedKeyInfoFromDraft));
+notesInput.addEventListener("input", scheduleKeyInfoSave);
+notesInput.addEventListener("blur", commitKeyInfoOnBlur);
 protectedKeyInfoInputs.forEach((input) => {
   input.addEventListener("input", captureActiveKeyInfoDraft);
 });
@@ -9532,12 +9542,22 @@ document.addEventListener("pointerdown", (event) => {
   const shouldRelockKeySetCount = isKeySetCountEditUnlocked && !clickedKeySetCount;
   if (!shouldRelockKeyInfo && !shouldRelockKeySetCount) return;
 
-  if (shouldRelockKeyInfo && isProtectedKeyInfoInputActive() &&
-    !keyInfoDraftMatchesKey(getKeyInfoDraftChanges(), key)) captureActiveKeyInfoDraft();
-  if (shouldRelockKeyInfo) isKeyInfoEditUnlocked = false;
-  if (shouldRelockKeySetCount) isKeySetCountEditUnlocked = false;
+  if (shouldRelockKeyInfo) {
+    debouncedKeyInfoSave.cancel();
+    if (!keyInfoDraftMatchesKey(getKeyInfoDraftChanges(), key) || activeKeyInfoDraft?.keyId === key.id) {
+      updateSelectedKeyInfoFromDraft({ render: false });
+    }
+    isKeyInfoEditUnlocked = false;
+  }
+  if (shouldRelockKeySetCount) {
+    const nextCount = Number(keySetCountSelect.value);
+    if ([1, 2, 3, 4].includes(nextCount) && nextCount !== key.sets.length) {
+      setKeySetCount(nextCount, { render: false });
+    }
+    isKeySetCountEditUnlocked = false;
+  }
   setTimeout(() => {
-    if (selectedId === key.id && !detailPanel.hidden) render();
+    if (getSelectedKey()?.id === key.id && !detailPanel.hidden) render();
   }, 0);
 }, true);
 keySetSelect.addEventListener("change", () => {
