@@ -35,7 +35,7 @@ const browserStorageNamespace = `quialakey:${agencyId}:`;
 const supabaseUrl = String(rawAgencyConfig.supabaseUrl || "").trim();
 const supabasePublishableKey = String(rawAgencyConfig.supabasePublishableKey || "").trim();
 const supabaseClient = createSupabaseClient();
-const appBuildVersion = "20260928-5";
+const appBuildVersion = "20261001-1";
 const appBuildVersionStorageKey = "cles-app-build-version-v1";
 const appBuildReloadStorageKey = `${browserStorageNamespace}cles-app-build-reload-v1`;
 const appBuildVersionUrl = "app-version.json";
@@ -100,7 +100,7 @@ const fullCloudRefreshIntervalMs = 60 * 1000;
 const cloudInteractionRefreshThrottleMs = 700;
 const cloudWakeRefreshDelays = [0, 800, 2500];
 const initialCloudLoadRetryDelays = [0, 700, 1800, 3500];
-const cloudInactivityTimeoutMs = 3 * 60 * 1000;
+const cloudInactivityTimeoutMs = 5 * 60 * 1000;
 const cloudReadRequestTimeoutMs = 6 * 1000;
 const cloudWriteRequestTimeoutMs = 12 * 1000;
 const cloudWriteDebounceMs = 300;
@@ -1122,46 +1122,23 @@ function enforceCloudSleepAfterInactivity() {
 }
 
 async function resumeCloudSyncFromInactivity() {
-  if (isResumingCloudSync) return;
+  if (isResumingCloudSync || isPhotoImporting || isAppInBackground()) return;
   isResumingCloudSync = true;
-  isCloudSleeping = false;
-  lastCloudActivityAt = Date.now();
   clearTimeout(cloudInactivityTimer);
   cloudSleepOverlay?.classList.add("is-awaiting-cloud");
-  if (cloudSleepOverlay) cloudSleepOverlay.querySelector("span").textContent = "Actualisation du tableau...";
+  if (cloudSleepOverlay) cloudSleepOverlay.querySelector("span").textContent = "Ouverture du tableau...";
   setCloudSleepOverlayVisible(true);
-  endKeyWorkProtection({ refresh: false });
-
-  let refreshed = !supabaseClient;
-  try {
-    if (supabaseClient) {
-      for (let attempt = 0; attempt < 3 && !refreshed && !isAppInBackground(); attempt += 1) {
-        refreshed = hasCompletedInitialCloudLoad
-          ? await loadStorageFromCloud({ force: true, full: true })
-          : await ensureInitialCloudStateLoaded();
-        if (!refreshed && attempt < 2) await new Promise((resolve) => setTimeout(resolve, 700));
-      }
-    }
-  } catch (error) {
-    console.warn("Supabase wake refresh failed", error.message);
-    refreshed = false;
-  } finally {
-    if (!refreshed || isAppInBackground() || isCloudSleeping) {
-      isCloudSleeping = true;
-      if (cloudSleepOverlay) cloudSleepOverlay.querySelector("span").textContent = isAppInBackground()
-        ? "Tableau en veille"
-        : "Tableau non actualisé. Appuyez pour réessayer.";
-    } else {
-      setCloudSleepOverlayVisible(false);
-      cloudSleepOverlay?.classList.remove("is-awaiting-cloud");
-      if (cloudSleepOverlay) cloudSleepOverlay.querySelector("span").textContent = "Tableau en veille";
-      scheduleCloudSleep();
-      void subscribeToCloudChanges();
-      queueWakeCloudRefreshes();
-      void ensureMissedAutomaticBackupOnOpen();
-    }
+  captureActiveKeyInfoDraft();
+  savePendingCloudKeys();
+  await Promise.race([
+    Promise.allSettled([...indexedStorageWrites.values()]),
+    new Promise((resolve) => setTimeout(resolve, 2000)),
+  ]);
+  if (isAppInBackground()) {
     isResumingCloudSync = false;
+    return;
   }
+  window.location.reload();
 }
 
 function startCloudInactivityTracking() {
@@ -1253,6 +1230,7 @@ async function ensureInitialCloudStateLoaded() {
 function refreshCloudAfterForeground() {
   if (isCloudSleeping) {
     setCloudSleepOverlayVisible(true);
+    if (isPhoneOrTabletDevice() && !isPhotoImporting) void resumeCloudSyncFromInactivity();
     return;
   }
 
@@ -2758,8 +2736,20 @@ function scheduleDirectKeyStorageFlush(storageKey, delay = 250) {
   );
 }
 
+function persistConfirmedKeySlots(storageKey, sourceKeys, confirmedKeys) {
+  if (!confirmedKeys.size) return;
+  const sourceById = new Map(sourceKeys.map((key) => [key.id, JSON.stringify(key)]));
+  const currentKeys = parseStoredArray(storageKey, makeInitialKeys()).map(normalizeKey);
+  const nextKeys = currentKeys.map((key) => {
+    const confirmed = confirmedKeys.get(key.id);
+    return confirmed && JSON.stringify(key) === sourceById.get(key.id) ? confirmed : key;
+  });
+  setRuntimeStorageValue(storageKey, JSON.stringify(nextKeys));
+}
+
 async function flushKeyStorageDirectlyToCloud(storageKey) {
   let savedKeys = parseStoredArray(storageKey, makeInitialKeys()).map(normalizeKey);
+  const sourceKeys = savedKeys;
   const keyById = new Map(savedKeys.map((key) => [key.id, key]));
   const keyIds = [...getDirtyKeySlotIds(storageKey)];
   if (!keyIds.length) return;
@@ -2771,13 +2761,16 @@ async function flushKeyStorageDirectlyToCloud(storageKey) {
     savedKeys = savedKeys.map((savedKey) => (savedKey.id === keyId ? confirmedKey : savedKey));
     syncedKeySnapshots.set(keyId, JSON.stringify(confirmedKey));
   });
-  setRuntimeStorageValue(storageKey, JSON.stringify(savedKeys));
+  persistConfirmedKeySlots(storageKey, sourceKeys, confirmedKeys);
 
   clearSyncedDirtyKeySlots(storageKey, syncedKeySnapshots);
   if (!getDirtyKeySlotIds(storageKey).size) {
     dirtyCloudKeys.delete(storageKey);
     failedCloudSyncKeys.delete(storageKey);
     markCloudOnlyStorageConfirmed(storageKey);
+  } else {
+    dirtyCloudKeys.add(storageKey);
+    scheduleStorageKeySync(storageKey);
   }
   savePendingCloudKeys();
   saveCloudRowVersions();
@@ -2786,6 +2779,7 @@ async function flushKeyStorageDirectlyToCloud(storageKey) {
 
 async function writeKeySlotsToCloud(storageKey, options = {}) {
   let savedKeys = parseStoredArray(storageKey, makeInitialKeys()).map(normalizeKey);
+  const sourceKeys = savedKeys;
   const keyById = new Map(savedKeys.map((key) => [key.id, key]));
   const keyIds = options.force ? savedKeys.map((key) => key.id) : [...getDirtyKeySlotIds(storageKey)];
   const syncedKeySnapshots = new Map();
@@ -2806,7 +2800,7 @@ async function writeKeySlotsToCloud(storageKey, options = {}) {
     savedKeys = savedKeys.map((savedKey) => (savedKey.id === keyId ? confirmedKey : savedKey));
     syncedKeySnapshots.set(keyId, JSON.stringify(confirmedKey));
   });
-  setRuntimeStorageValue(storageKey, JSON.stringify(savedKeys));
+  persistConfirmedKeySlots(storageKey, sourceKeys, confirmedKeys);
 
   await writeFullKeyStorageMirrorToCloud(storageKey, savedKeys);
   clearSyncedDirtyKeySlots(storageKey, syncedKeySnapshots);
@@ -4499,9 +4493,9 @@ function getKeyStatusCounts() {
 
 function getCompromiseMovementStatus(record) {
   const sets = record?.key?.sets || [];
-  if (sets.some((set) => set.status === "out")) return "out";
-  if (sets.some(hasActiveReservations)) return "reserved";
-  return "";
+  if (sets.some((set) => getSetDisplayStatus(set) === "out")) return "out";
+  if (sets.some((set) => getSetDisplayStatus(set) === "reserved")) return "reserved";
+  return "available";
 }
 
 function statusText(key) {
@@ -4924,14 +4918,13 @@ function beginPhotoImport(event) {
   markLocalEdit();
   clearTimeout(detailCloseTimer);
   clearTimeout(photoImportResetTimer);
-  photoImportResetTimer = setTimeout(() => {
-    isPhotoImporting = false;
-  }, 120000);
+  photoImportResetTimer = setTimeout(finishPhotoImport, 10 * 60 * 1000);
 }
 
 function finishPhotoImport() {
   clearTimeout(photoImportResetTimer);
   isPhotoImporting = false;
+  if (isCloudSleeping && !isAppInBackground()) void resumeCloudSyncFromInactivity();
 }
 
 function scheduleDetailPanelClose() {
@@ -7518,7 +7511,7 @@ function renderCompromisesPanel() {
     ? "out"
     : compromisedRecords.some((record) => getCompromiseMovementStatus(record) === "reserved")
       ? "reserved"
-      : "";
+      : compromisedRecords.length ? "available" : "";
   compromisesTabBtn.dataset.movementStatus = tabStatus;
 }
 
@@ -7804,6 +7797,17 @@ function renderKeySetSelect(key) {
   keySetSelect.value = selectedSetId;
 }
 
+function createReservationEditButton(reservationId, setId) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "reservation-edit-button";
+  button.title = "Modifier la réservation";
+  button.setAttribute("aria-label", "Modifier la réservation");
+  button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4Z"/></svg>';
+  button.addEventListener("click", () => void editReservation(reservationId, setId));
+  return button;
+}
+
 function compressPhotoFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -7953,7 +7957,8 @@ function renderKeySetPhotos(key) {
     const importButtonText = document.createElement("span");
     const importInput = document.createElement("input");
 
-    const displayStatus = isArchiveView ? "archived" : isFilled ? getSetDisplayStatus(set) : "empty";
+    const displayStatus = isSelectedCompromiseEditable() ? getSetDisplayStatus(set)
+      : isArchiveView ? "archived" : isFilled ? getSetDisplayStatus(set) : "empty";
     item.className = `key-set-photo-card ${displayStatus}${set.id === selectedSetId ? " is-selected" : ""}`;
     title.type = "button";
     title.className = "photo-set-select";
@@ -8005,9 +8010,13 @@ function renderKeySetPhotos(key) {
     cameraInput.accept = "image/*";
     cameraInput.setAttribute("capture", "environment");
     cameraInput.dataset.setId = set.id;
+    cameraInput.dataset.keyId = key.id;
+    cameraInput.dataset.archiveId = selectedArchiveRecord?.id || "";
+    cameraInput.dataset.registry = activeRegistry;
     cameraButton.style.display = canEditPhotos ? "" : "none";
     cameraInput.addEventListener("click", beginPhotoImport);
     cameraInput.addEventListener("cancel", finishPhotoImport);
+    cameraInput.addEventListener("change", handleKeySetPhotoChange);
 
     importButton.className = "photo-button photo-import-button";
     importButtonText.textContent = key.sets.length === 4 ? "Importer ph." : "Importer une photo";
@@ -8015,9 +8024,13 @@ function renderKeySetPhotos(key) {
     importInput.type = "file";
     importInput.accept = "image/*";
     importInput.dataset.setId = set.id;
+    importInput.dataset.keyId = key.id;
+    importInput.dataset.archiveId = selectedArchiveRecord?.id || "";
+    importInput.dataset.registry = activeRegistry;
     importButton.style.display = canEditPhotos ? "" : "none";
     importInput.addEventListener("click", beginPhotoImport);
     importInput.addEventListener("cancel", finishPhotoImport);
+    importInput.addEventListener("change", handleKeySetPhotoChange);
     importButton.append(importButtonText, importInput);
 
     cameraButton.append(cameraButtonText, cameraInput);
@@ -8241,6 +8254,7 @@ function renderPanel() {
     title.textContent = `${reservationSet.label} - ${hasHistoryPerson ? `R\u00e9serv\u00e9 : ${historyPersonName}` : "R\u00e9serv\u00e9"}`;
     reservationDate.textContent = `Pour le ${formatReservationHistoryDate(entry.reservationDate || reservation.reservationDate || entry.date)}`;
     item.append(title, reservationDate);
+    if (!isReadOnlyArchive) item.append(createReservationEditButton(entry.reservationId, reservationSet.id));
 
     if (reservationEntry.company) {
       const company = document.createElement("p");
@@ -8452,6 +8466,7 @@ function renderPanel() {
     let historySummary = null;
     if (activeReservation) {
       historySummary = item.cloneNode(true);
+      if (!isReadOnlyArchive) item.append(createReservationEditButton(entry.reservationId, selectedSet.id));
       const reservationCommentField = document.createElement("label");
       const reservationCommentLabel = document.createElement("span");
       const reservationComment = document.createElement("textarea");
@@ -9171,6 +9186,96 @@ async function archiveReservationKey(reservationId) {
   logActivity(actionLabel, keyLabel(key), [key.owner, key.property, entry.person || entry.company, entry.phone].filter(Boolean).join(" - "));
   saveKeys();
   await finishKeyControlAction(key.id, { keysChanged: true, archivesChanged: false });
+}
+
+function promptReservationEdit(reservation) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "date-dialog reservation-edit-dialog";
+  dialog.innerHTML = `
+    <form method="dialog">
+      <h3>Modifier la réservation</h3>
+      <label>Date et heure <input name="date" type="datetime-local" required /></label>
+      <label>Intervenant <input name="person" type="text" /></label>
+      <label>Société <input name="company" type="text" /></label>
+      <label>Téléphone <input name="phone" type="tel" /></label>
+      <label>Commentaire <textarea name="note" rows="2"></textarea></label>
+      <label>Retour à l'agence
+        <select name="returns"><option value="undecided">À préciser</option><option value="yes">Oui</option><option value="no">Non</option></select>
+      </label>
+      <div class="reservation-edit-actions">
+        <button value="cancel" type="submit">Annuler</button>
+        <button value="confirm" type="submit">Enregistrer</button>
+      </div>
+    </form>
+  `;
+  const fields = dialog.querySelector("form").elements;
+  const timestamp = parseHistoryTimestamp(reservation.reservationDate);
+  const date = timestamp ? new Date(timestamp) : new Date();
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  fields.namedItem("date").value = date.toISOString().slice(0, 16);
+  fields.namedItem("person").value = reservation.person || "";
+  fields.namedItem("company").value = reservation.company || "";
+  fields.namedItem("phone").value = reservation.phone || "";
+  fields.namedItem("note").value = reservation.note || "";
+  fields.namedItem("returns").value = reservation.returnsToAgency === false ? "no"
+    : reservation.returnsToAgency === true ? "yes" : "undecided";
+  document.body.append(dialog);
+  dialog.showModal();
+  return new Promise((resolve) => {
+    dialog.addEventListener("close", () => {
+      const changes = dialog.returnValue === "confirm" ? {
+        reservationDate: fields.namedItem("date").value,
+        person: fields.namedItem("person").value.trim(),
+        company: fields.namedItem("company").value.trim(),
+        phone: fields.namedItem("phone").value.trim(),
+        note: fields.namedItem("note").value.trim(),
+        returnsToAgency: fields.namedItem("returns").value === "undecided" ? null
+          : fields.namedItem("returns").value === "yes",
+      } : null;
+      dialog.remove();
+      resolve(changes);
+    }, { once: true });
+  });
+}
+
+async function editReservation(reservationId, setId) {
+  const sourceKey = getSelectedKey();
+  const sourceSet = sourceKey?.sets.find((set) => set.id === setId);
+  const reservation = sourceSet?.reservations?.find((item) => item.id === reservationId && isActiveReservation(item));
+  if (!sourceKey || !reservation || (selectedArchiveRecord && !isSelectedCompromiseEditable())) return;
+  const sourceRegistry = activeRegistry;
+  const sourceArchiveId = selectedArchiveRecord?.id || "";
+  const changes = await promptReservationEdit(reservation);
+  if (!changes) return;
+  const currentKey = getSelectedKey();
+  const currentSet = currentKey?.sets.find((set) => set.id === setId);
+  if (currentKey?.id !== sourceKey.id || activeRegistry !== sourceRegistry ||
+    (selectedArchiveRecord?.id || "") !== sourceArchiveId ||
+    !currentSet?.reservations?.some((item) => item.id === reservationId)) return;
+  const formattedDate = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" })
+    .format(new Date(changes.reservationDate));
+  const edited = {
+    person: changes.person,
+    company: formatCompanyName(changes.company).trim(),
+    phone: formatPhoneNumber(changes.phone),
+    note: formatSentenceStart(changes.note).trim(),
+    reservationDate: formattedDate,
+    returnsToAgency: changes.returnsToAgency,
+  };
+  selectedSetId = setId;
+  updateSelectedSet({
+    reservations: currentSet.reservations.map((item) => item.id === reservationId ? { ...item, ...edited } : item),
+    history: currentSet.history.map((item) => item.reservationId === reservationId && item.type === "reserved"
+      ? { ...item, ...edited } : item),
+    ...(currentSet.holderReservationId === reservationId ? {
+      holder: edited.person,
+      holderCompany: edited.company,
+      holderPhone: edited.phone,
+    } : {}),
+  });
+  markKeyControlActionForSync(currentKey.id, { keysChanged: !sourceArchiveId, archivesChanged: Boolean(sourceArchiveId) });
+  await waitForIndexedStorageWrite(sourceArchiveId ? getRegistryConfig().archivesStorageKey : getRegistryConfig().keysStorageKey);
+  await syncCloudAfterAction();
 }
 
 async function setReservationReturnDecision(reservationId) {
@@ -10135,31 +10240,41 @@ transferKeyBtn.addEventListener("click", () => {
 duplicateKeyBtn.addEventListener("click", () => {
   void duplicateSelectedKeyInCurrentRegistry();
 });
-keySetPhotoList.addEventListener("change", (event) => {
+function handleKeySetPhotoChange(event) {
   const input = event.target;
   if (!(input instanceof HTMLInputElement) || input.type !== "file") return;
 
   const file = input.files?.[0];
   const setId = input.dataset.setId;
+  const keyId = input.dataset.keyId;
+  const archiveId = input.dataset.archiveId || "";
+  const registry = input.dataset.registry;
   if (!file) {
     finishPhotoImport();
     return;
   }
 
   compressPhotoFile(file)
-    .then((photo) => {
+    .then(async (photo) => {
       const key = getSelectedKey();
-      if (!key) return;
+      if (!key || key.id !== keyId || activeRegistry !== registry ||
+        (selectedArchiveRecord?.id || "") !== archiveId || !key.sets.some((set) => set.id === setId)) {
+        throw new Error("La fiche photographiée n'est plus ouverte.");
+      }
 
       const sets = key.sets.map((set) => (set.id === setId ? { ...set, photo } : set));
       updateSelectedKeySets(sets);
+      const storageKey = archiveId ? getRegistryConfig().archivesStorageKey : getRegistryConfig().keysStorageKey;
+      markKeyControlActionForSync(key.id, { keysChanged: !archiveId, archivesChanged: Boolean(archiveId) });
+      await waitForIndexedStorageWrite(storageKey);
+      await syncCloudAfterAction();
     })
     .catch(() => {
       alert("La photo n'a pas pu être importée.");
     })
     .finally(finishPhotoImport);
   input.value = "";
-});
+}
 
 cloudSleepOverlay?.addEventListener("click", (event) => {
   event.preventDefault();

@@ -342,21 +342,24 @@ async function main() {
 
     await page.evaluate(() => enterCloudSleep());
     remoteStatus = "available";
-    await page.locator("#cloudSleepOverlay").click();
-    assert.equal(await page.locator("#cloudSleepOverlay").evaluate((element) => element.hidden), false);
-    assert.equal(await page.locator("#cloudSleepOverlay").evaluate((element) => element.classList.contains("is-awaiting-cloud")), true);
-    await page.waitForFunction(() => !document.body.classList.contains("is-cloud-sleeping"), null, { timeout: 15000 });
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 }),
+      page.locator("#cloudSleepOverlay").click(),
+    ]);
+    await page.waitForFunction(() => typeof hasCompletedInitialCloudLoad !== "undefined" && hasCompletedInitialCloudLoad && !document.body.classList.contains("is-access-loading"), null, { timeout: 15000 });
     assert.equal(await page.evaluate(() => keys.find((key) => key.id === "T3-1")?.sets[0].status), "available");
-    assert.equal(await page.locator("#cloudSleepOverlay").evaluate((element) => element.classList.contains("is-awaiting-cloud")), false);
+    assert.equal(await page.evaluate(() => cloudInactivityTimeoutMs), 5 * 60 * 1000);
 
     await page.evaluate(() => enterCloudSleep());
     failReads = true;
-    await page.locator("#cloudSleepOverlay").click();
-    await page.waitForFunction(() => document.querySelector("#cloudSleepOverlay span")?.textContent.includes("Tableau non actualisé"), null, { timeout: 15000 });
-    assert.equal(await page.locator("#cloudSleepOverlay").evaluate((element) => element.hidden), false);
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 }),
+      page.locator("#cloudSleepOverlay").click(),
+    ]);
+    await page.waitForFunction(() => !document.querySelector("#retryInitialLoadBtn")?.hidden, null, { timeout: 15000 });
     failReads = false;
-    await page.locator("#cloudSleepOverlay").click();
-    await page.waitForFunction(() => !document.body.classList.contains("is-cloud-sleeping"), null, { timeout: 15000 });
+    await page.locator("#retryInitialLoadBtn").click();
+    await page.waitForFunction(() => typeof hasCompletedInitialCloudLoad !== "undefined" && hasCompletedInitialCloudLoad && !document.body.classList.contains("is-access-loading"), null, { timeout: 15000 });
 
     failReads = true;
     await page.reload();
@@ -688,7 +691,7 @@ async function main() {
     page.once("dialog", (dialog) => dialog.accept());
     await page.locator("#keySetCountUnlockBtn").dblclick();
     await page.locator("#keySetCountSelect").selectOption("2");
-    await page.locator("#keySetSelect").selectOption("double");
+    await page.locator(".photo-set-select").nth(1).click();
     assert.equal(await page.evaluate(() => selectedSetId), "double");
     assert.equal(await page.evaluate(() => keys.find((key) => key.id === "T3-1").sets.length), 2);
     page.once("dialog", (dialog) => dialog.accept());
@@ -1274,7 +1277,230 @@ async function main() {
     assert.equal(reservationHistorySlots.taggedRows.find((row) => row.keyId === "T2-6")?.historyId, "activity:activity-test");
     assert.ok(reservationHistorySlots.taggedRows.some((row) => row.keyId === "T3-13"));
     assert.equal(reservationHistorySlots.legacyCreationKeyId, "");
-    process.stdout.write("Cloud startup, wake refresh, retry, and key detail sync checks passed.\n");
+    const reservationEdit = await page.evaluate(async () => {
+      const originalKeys = keys;
+      const originalSelectedId = selectedId;
+      const originalSelectedSetId = selectedSetId;
+      const originalUpdate = updateSelectedSet;
+      const originalMark = markKeyControlActionForSync;
+      const originalSync = syncCloudAfterAction;
+      let saved;
+      try {
+        selectedId = "T3-1";
+        selectedSetId = "main";
+        keys = keys.map((key) => key.id === selectedId ? {
+          ...key,
+          sets: [{ ...key.sets[0], reservations: [{
+            id: "edit-test", person: "Avant", phone: "06 00 00 00 00", note: "Ancien",
+            reservationDate: "01/10/2026 12:00", createdAt: "30/09/2026 12:00", returnsToAgency: true,
+          }], history: [{
+            id: "edit-history", type: "reserved", reservationId: "edit-test", person: "Avant",
+            reservationDate: "01/10/2026 12:00", date: "30/09/2026 12:00",
+          }] }],
+        } : key);
+        updateSelectedSet = (changes) => { saved = changes; };
+        markKeyControlActionForSync = () => {};
+        syncCloudAfterAction = async () => true;
+        renderPanel();
+        document.querySelector(".reservation-edit-button").click();
+        const dialog = document.querySelector(".reservation-edit-dialog");
+        const fields = dialog.querySelector("form").elements;
+        fields.namedItem("person").value = "Après";
+        fields.namedItem("note").value = "Nouveau commentaire";
+        fields.namedItem("date").value = "2026-10-02T16:30";
+        fields.namedItem("returns").value = "no";
+        dialog.querySelector('button[value="confirm"]').click();
+        for (let attempt = 0; attempt < 50 && !saved; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        return {
+          buttonCount: activeReservationPanel.querySelectorAll(".reservation-edit-button").length,
+          reservation: saved?.reservations[0],
+          history: saved?.history[0],
+        };
+      } finally {
+        keys = originalKeys;
+        selectedId = originalSelectedId;
+        selectedSetId = originalSelectedSetId;
+        updateSelectedSet = originalUpdate;
+        markKeyControlActionForSync = originalMark;
+        syncCloudAfterAction = originalSync;
+        renderPanel();
+      }
+    });
+    assert.equal(reservationEdit.reservation.person, "Après");
+    assert.equal(reservationEdit.history.person, "Après");
+    assert.equal(reservationEdit.reservation.reservationDate, "02/10/2026 16:30");
+    assert.equal(reservationEdit.history.reservationDate, "02/10/2026 16:30");
+    assert.equal(reservationEdit.reservation.returnsToAgency, false);
+    assert.equal(reservationEdit.history.returnsToAgency, false);
+
+    const compromiseStates = await page.evaluate(() => {
+      const originalArchives = archives;
+      const originalSelectedArchive = selectedArchiveRecord;
+      const originalSelectedId = selectedId;
+      const originalSelectedSetId = selectedSetId;
+      const originalRegistry = activeRegistry;
+      try {
+        activeRegistry = "transaction";
+        selectedId = null;
+        selectedSetId = "main";
+        const sets = ["main", "double", "triple"].map((id, index) => ({
+          ...makeKeySet(id), label: `Jeu ${index + 1}`, status: "available", reservations: [],
+        }));
+        const record = {
+          id: "compromise-colors", reason: "rented", archivedAt: new Date().toISOString(),
+          key: { id: "T3-1", category: "T3", number: 1, owner: "Test", property: "Adresse test", sets },
+        };
+        archives = [record];
+        selectedArchiveRecord = record;
+        const inspect = () => {
+          render();
+          return {
+            tab: compromisesTabBtn.dataset.movementStatus,
+            cards: [...keySetPhotoList.querySelectorAll(".key-set-photo-card")].map((card) => ({
+              status: [...card.classList].find((name) => ["available", "reserved", "out"].includes(name)),
+              color: getComputedStyle(card).backgroundColor,
+            })),
+          };
+        };
+        const available = inspect();
+        record.key.sets[1].reservations = [{ id: "color-reservation", createdAt: "01/10/2026 12:00" }];
+        const reserved = inspect();
+        record.key.sets[2].status = "out";
+        const out = inspect();
+        return { available, reserved, out };
+      } finally {
+        archives = originalArchives;
+        selectedArchiveRecord = originalSelectedArchive;
+        selectedId = originalSelectedId;
+        selectedSetId = originalSelectedSetId;
+        activeRegistry = originalRegistry;
+        render();
+      }
+    });
+    assert.equal(compromiseStates.available.tab, "available");
+    assert.equal(compromiseStates.reserved.tab, "reserved");
+    assert.equal(compromiseStates.out.tab, "out");
+    assert.deepEqual(compromiseStates.out.cards.map((card) => card.status), ["available", "reserved", "out"]);
+    assert.deepEqual(compromiseStates.out.cards.map((card) => card.color), [
+      "rgb(202, 235, 213)", "rgb(248, 209, 154)", "rgb(242, 206, 200)",
+    ]);
+    await page.evaluate(async () => {
+      await pendingCloudSync.catch(() => {});
+      const storageKey = getRegistryConfig().keysStorageKey;
+      const resetKey = normalizeKey({
+        id: "T3-1", category: "T3", number: 1, owner: "MEYER", property: "27 avenue Test",
+        sets: [{ id: "main", label: "Jeu 1", status: "available", history: [], reservations: [] }],
+      });
+      keys = keys.map((key) => key.id === resetKey.id ? resetKey : key);
+      setRuntimeStorageValue(storageKey, JSON.stringify(keys));
+      clearDirtyKeySlot(storageKey, resetKey.id);
+      pendingKeySlotWrites.delete(getKeySlotCloudKey(storageKey, resetKey.id));
+      dirtyCloudKeys.delete(storageKey);
+      savePendingKeySlotWrites();
+      savePendingCloudKeys();
+      await waitForIndexedStorageWrite(storageKey);
+      selectedArchiveRecord = null;
+      selectedId = resetKey.id;
+      selectedSetId = "main";
+      render();
+    });
+    const takePhoto = (targetPage, color, sleep, rerender = false) => targetPage.evaluate(async ({ color: photoColor, sleep: shouldSleep, rerender: shouldRerender }) => {
+      selectedArchiveRecord = null;
+      selectedId = "T3-1";
+      selectedSetId = "main";
+      render();
+      const input = keySetPhotoList.querySelector('.photo-actions label:first-child input[type="file"]');
+      beginPhotoImport({ currentTarget: input });
+      if (shouldSleep) enterCloudSleep();
+      if (shouldRerender) render();
+      const canvas = document.createElement("canvas");
+      canvas.width = 80;
+      canvas.height = 80;
+      const context = canvas.getContext("2d");
+      context.fillStyle = photoColor;
+      context.fillRect(0, 0, 80, 80);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([blob], "capture.png", { type: "image/png" }));
+      input.files = transfer.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }, { color, sleep, rerender });
+    await takePhoto(page, "#ff0000", false);
+    await page.waitForFunction(() => !isPhotoImporting && keys.find((key) => key.id === "T3-1")?.sets[0].photo?.length > 200);
+    const firstPhoto = await page.evaluate(async () => {
+      const storageKey = getRegistryConfig().keysStorageKey;
+      await waitForIndexedStorageWrite(storageKey);
+      const local = JSON.parse((await readIndexedStorageEntry(storageKey)).value);
+      return {
+        visible: keys.find((key) => key.id === "T3-1").sets[0].photo,
+        saved: local.find((key) => key.id === "T3-1").sets[0].photo,
+      };
+    });
+    assert.equal(firstPhoto.saved, firstPhoto.visible);
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 }),
+      page.evaluate(() => {
+        isPhoneOrTabletDevice = () => true;
+        enterCloudSleep();
+        refreshCloudAfterForeground();
+      }),
+    ]);
+    await page.waitForFunction(() => typeof hasCompletedInitialCloudLoad !== "undefined" && hasCompletedInitialCloudLoad && !document.body.classList.contains("is-access-loading"), null, { timeout: 15000 });
+    const photoPage = await browser.newPage({ serviceWorkers: "block" });
+    await photoPage.route("**/agency-config.js*", (route) => route.fulfill({
+      status: 200,
+      contentType: "text/javascript",
+      body: 'window.QUIALAKEY_CONFIG = Object.freeze({ agencyId: "photo-test", agencyName: "Photo test", supabaseUrl: "", supabasePublishableKey: "" });',
+    }));
+    await photoPage.addInitScript((seedKey) => {
+      if (sessionStorage.getItem("photo-test-seeded")) return;
+      localStorage.setItem("quialakey:photo-test:cles-table-settings-v1", JSON.stringify({ agencyName: "Photo test", accessLockEnabled: false }));
+      localStorage.setItem("quialakey:photo-test:cles-transaction-v1", JSON.stringify([seedKey]));
+      localStorage.setItem("quialakey:photo-test:cles-location-active-registry-v1", "transaction");
+      sessionStorage.setItem("photo-test-seeded", "yes");
+    }, makeKey("available"));
+    await photoPage.goto(`http://127.0.0.1:${server.address().port}/`);
+    await photoPage.waitForFunction(() => typeof indexedStorageHydrated !== "undefined" && indexedStorageHydrated && !document.body.classList.contains("is-access-loading"));
+    await takePhoto(photoPage, "#ff0000", false, true);
+    await photoPage.waitForFunction(() => !isPhotoImporting && keys.find((key) => key.id === "T3-1")?.sets[0].photo?.length > 200);
+    const oldOfflinePhoto = await photoPage.evaluate(() => keys.find((key) => key.id === "T3-1").sets[0].photo);
+    await Promise.all([
+      photoPage.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 }),
+      takePhoto(photoPage, "#0000ff", true, true),
+    ]);
+    await photoPage.waitForFunction(() => typeof indexedStorageHydrated !== "undefined" && indexedStorageHydrated && !document.body.classList.contains("is-access-loading"));
+    const reopenedPhoto = await photoPage.evaluate(async () => {
+      const storageKey = getRegistryConfig().keysStorageKey;
+      await waitForIndexedStorageWrite(storageKey);
+      const saved = JSON.parse((await readIndexedStorageEntry(storageKey)).value);
+      return {
+        visible: keys.find((key) => key.id === "T3-1")?.sets[0].photo,
+        saved: saved.find((key) => key.id === "T3-1")?.sets[0].photo,
+      };
+    });
+    assert.equal(reopenedPhoto.visible, reopenedPhoto.saved);
+    assert.notEqual(reopenedPhoto.visible, oldOfflinePhoto);
+    const lateSyncKeepsNewPhoto = await photoPage.evaluate(async () => {
+      const storageKey = getRegistryConfig().keysStorageKey;
+      const originalValue = getRuntimeStorageValue(storageKey);
+      const originalKeys = JSON.parse(originalValue);
+      const sourceKey = normalizeKey(originalKeys.find((key) => key.id === "T3-1"));
+      const newerPhoto = `${sourceKey.sets[0].photo}newer`;
+      const editedKeys = originalKeys.map((key) => key.id === sourceKey.id ? {
+        ...key, sets: key.sets.map((set, index) => index === 0 ? { ...set, photo: newerPhoto } : set),
+      } : key);
+      setRuntimeStorageValue(storageKey, JSON.stringify(editedKeys));
+      persistConfirmedKeySlots(storageKey, [sourceKey], new Map([[sourceKey.id, sourceKey]]));
+      const kept = parseStoredArray(storageKey, []).find((key) => key.id === sourceKey.id).sets[0].photo === newerPhoto;
+      setRuntimeStorageValue(storageKey, originalValue);
+      await waitForIndexedStorageWrite(storageKey);
+      return kept;
+    });
+    assert.equal(lateSyncKeepsNewPhoto, true);
+    await photoPage.close();
+    process.stdout.write("Cloud startup, wake reload, reservation edit, compromise colors, and photo persistence passed.\n");
   } finally {
     await browser?.close();
     await new Promise((resolve) => server.close(resolve));

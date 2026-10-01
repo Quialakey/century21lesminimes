@@ -680,6 +680,12 @@ h3 {
   background: #f8d19a;
 }
 
+.compromise-tab-button[data-movement-status="available"] {
+  border-color: #55aa73;
+  color: var(--ink);
+  background: #caebd5;
+}
+
 .tab-icon {
   flex: 0 0 auto;
   width: 24px;
@@ -2107,6 +2113,11 @@ body.is-moving-key .photo-hover {
   background: #f8d19a;
 }
 
+.archive-list li[data-movement-status="available"] {
+  border-color: #55aa73;
+  background: #caebd5;
+}
+
 .global-history-list strong {
   display: block;
   margin: 0;
@@ -2555,6 +2566,21 @@ body.is-moving-key .photo-hover {
   opacity: 1;
 }
 
+.key-form.is-compromise-view .key-set-photo-card.available {
+  border-color: #55aa73;
+  background: #caebd5;
+}
+
+.key-form.is-compromise-view .key-set-photo-card.reserved {
+  border-color: #d18427;
+  background: #f8d19a;
+}
+
+.key-form.is-compromise-view .key-set-photo-card.out {
+  border-color: #ce6a60;
+  background: #f2cec8;
+}
+
 .photo-actions {
   display: grid;
   grid-template-columns: 1fr;
@@ -2786,6 +2812,43 @@ body.is-moving-key .photo-hover {
   min-height: 40px;
   border-radius: 8px;
   font-weight: 700;
+}
+
+.reservation-edit-dialog {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.reservation-edit-dialog form {
+  gap: 10px;
+}
+
+.reservation-edit-dialog label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.reservation-edit-dialog input,
+.reservation-edit-dialog textarea,
+.reservation-edit-dialog select {
+  width: 100%;
+  min-height: 40px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f9faf9;
+  font: inherit;
+  font-weight: 400;
+}
+
+.reservation-edit-dialog .reservation-edit-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#keySetSelect[hidden] {
+  display: none;
 }
 
 .reservation-return-dialog button {
@@ -3039,6 +3102,42 @@ body.is-moving-key .photo-hover {
   background: #f8d19a;
 }
 
+.active-reservation-panel li[data-history-action="reserved"] {
+  position: relative;
+  gap: 2px;
+  padding: 8px;
+}
+
+.active-reservation-panel li[data-history-action="reserved"] > strong:first-child {
+  padding-right: 32px;
+}
+
+.reservation-edit-button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #d18427;
+  border-radius: 6px;
+  color: var(--ink);
+  background: #f9e2bf;
+  cursor: pointer;
+}
+
+.reservation-edit-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .history-list li[data-history-action="signed"] {
   border-color: #d8ad28;
   background: #ffe58a;
@@ -3097,8 +3196,8 @@ body.is-moving-key .photo-hover {
 
 .reservation-comment-input {
   width: 100%;
-  min-height: 36px;
-  padding: 9px 10px;
+  min-height: 34px;
+  padding: 7px 9px;
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--ink);
@@ -3112,7 +3211,7 @@ body.is-moving-key .photo-hover {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  margin: 8px 0 8px;
+  margin: 6px 0;
 }
 
 .reservation-history-actions.is-two-action {
@@ -3123,7 +3222,7 @@ body.is-moving-key .photo-hover {
   display: grid;
   place-items: center;
   width: 100%;
-  min-height: 46px;
+  min-height: 42px;
   padding: 0 6px;
   border: 2px solid transparent;
   border-radius: 8px;
